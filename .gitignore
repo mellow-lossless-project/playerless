@@ -3,6 +3,7 @@ build/
 .gradle/
 .kotlin/
 *.apk
+!/Playerless.apk
 *.aab
 *.dm
 

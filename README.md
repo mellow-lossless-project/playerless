@@ -18,6 +18,12 @@ Il nome è un gioco di parole: nonostante suoni come "lossless", non riproduce F
 
 L'interfaccia è solo in italiano.
 
+## Scaricare
+
+**[Scarica Playerless.apk](https://github.com/mellow-lossless-project/playerless/raw/main/Playerless.apk)** (versione 0.7)
+
+Serve Android 8 o successivo. Al primo avvio dell'installazione il telefono chiederà di consentire le app da fonti sconosciute.
+
 ## Perché è così leggera
 
 L'APK pesa circa 0,63 MB. Niente Compose, Hilt, Room o librerie per le immagini: solo Kotlin, View XML, Media3 per la riproduzione e RecyclerView per le liste.
