@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:colorBackground">#000000</item>
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:colorAccent">@color/accent_red</item>
+        <item name="android:statusBarColor">#3A3A3A</item>
+        <item name="android:navigationBarColor">#3A3A3A</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowActivityTransitions">false</item>
+        <item name="android:colorBackgroundFloating">#3A3A3A</item>
+        <item name="android:alertDialogTheme">@style/AppDialog</item>
+    </style>
+
+    <!-- White buttons: red, blue and purple are under 3:1 on #3A3A3A. No animation, like the rest. -->
+    <style name="AppDialog" parent="android:ThemeOverlay.Material.Dialog.Alert">
+        <item name="android:colorAccent">#FFFFFF</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+
+    <!-- Icons and titles read colorAccent, so a theme is all it takes to recolor the app. -->
+    <style name="AppTheme.Orange">
+        <item name="android:colorAccent">@color/accent_orange</item>
+    </style>
+
+    <style name="AppTheme.Yellow">
+        <item name="android:colorAccent">@color/accent_yellow</item>
+    </style>
+
+    <style name="AppTheme.Green">
+        <item name="android:colorAccent">@color/accent_green</item>
+    </style>
+
+    <style name="AppTheme.Cyan">
+        <item name="android:colorAccent">@color/accent_cyan</item>
+    </style>
+
+    <style name="AppTheme.Blue">
+        <item name="android:colorAccent">@color/accent_blue</item>
+    </style>
+
+    <style name="AppTheme.Purple">
+        <item name="android:colorAccent">@color/accent_purple</item>
+    </style>
+
+    <style name="AppTheme.Pink">
+        <item name="android:colorAccent">@color/accent_pink</item>
+    </style>
+
+    <style name="AppTheme.White">
+        <item name="android:colorAccent">@color/accent_white</item>
+    </style>
+</resources>
