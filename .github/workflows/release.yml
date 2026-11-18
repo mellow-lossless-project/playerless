@@ -1,10 +1,12 @@
 # Every pushed version tag (v1.1, v1.2, ...) becomes a GitHub release named "Playerless 1.1", with
 # the tag's message as its notes and the committed Playerless.apk attached. Nothing is built here:
 # the APK is the one signed on the PC with the app's key, so it installs over the previous one.
+# A push to main brings the latest release's notes in line with its tag, in case they drifted.
 name: Release
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
 
 permissions:
@@ -14,13 +16,26 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      # The whole history, so the tag keeps its message: a shallow checkout drops it.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Publish the APK
+      # Checkout leaves the pushed tag without its message: fetch the tags again as they are.
+      - name: Fetch the tags with their messages
+        run: git fetch --force origin "+refs/tags/*:refs/tags/*"
+
+      - name: Publish or update the release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" Playerless.apk --title "Playerless ${TAG#v}" --notes-from-tag --verify-tag
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag=$(git describe --tags --abbrev=0 --match 'v*') || exit 0
+          fi
+          git tag -l --format='%(contents)' "$tag" > notes.md
+          if gh release view "$tag" > /dev/null 2>&1; then
+            gh release edit "$tag" --title "Playerless ${tag#v}" --notes-file notes.md
+          elif [ "$GITHUB_REF_TYPE" = tag ]; then
+            gh release create "$tag" Playerless.apk --title "Playerless ${tag#v}" --notes-file notes.md --verify-tag
+          fi
