@@ -8,7 +8,7 @@ Il nome è un gioco di parole: suona come "lossless". L'audio è AAC fino a 320 
 
 ## Funzioni
 
-- **Ricerca** istantanea: i brani scaricati compaiono subito in cima, anche senza rete. JioSaavn e YouTube Music si cercano insieme; se uno dei due è lento, i risultati dell'altro compaiono dopo al massimo un secondo e mezzo
+- **Ricerca** istantanea: i brani scaricati compaiono subito in cima, anche senza rete. JioSaavn e YouTube Music si cercano insieme; se uno dei due è lento, i risultati dell'altro compaiono dopo al massimo un secondo e mezzo. In cima va il brano che contiene più parole cercate, e accenti, apostrofi e spazi non contano: "season25" trova "Season 25", "foushee" trova "Fousheé"
 - **YouTube Music** per gli artisti che JioSaavn non ha: i suoi brani sono segnati "· YouTube" e partono in qualche secondo
 - **Log di caricamento** mentre un brano si prepara, che sparisce appena parte
 - **Playlist da Spotify** importate dal PC con un bot (vedi sotto)
@@ -26,7 +26,7 @@ L'interfaccia è solo in italiano.
 
 ## Scaricare
 
-**[Scarica Playerless.apk](https://github.com/mellow-lossless-project/playerless/raw/main/Playerless.apk)** (versione 1.2)
+**[Scarica Playerless.apk](https://github.com/mellow-lossless-project/playerless/raw/main/Playerless.apk)** (versione 1.3)
 
 Ogni versione è anche nelle [Release](https://github.com/mellow-lossless-project/playerless/releases), con l'APK allegato e le novità. Si installa sopra la precedente: playlist e download restano.
 

@@ -29,12 +29,17 @@ object Lossless {
     // costs one song a timeout, not every song.
     private const val DOWN_MS = 3 * 60_000L
 
+    // A recording the server lists but can't send (Fousheé's "Deep End": 403 or 502 after 30 s, on
+    // 2026-11-18) is passed over for a while: only that song plays from its own source.
+    private const val UNSENDABLE_MS = 30 * 60_000L
+
     // seconds: the recording's length on the server, 0 when it doesn't say.
     class Found(val url: String, val flac: Boolean, val label: String, val seconds: Int = 0)
 
     // What the server said about each song, so a song played again doesn't ask again.
     private val NONE = Found("", false, "")
     private val found = ConcurrentHashMap<String, Found>()
+    private val unsendable = ConcurrentHashMap<String, Long>()
     @Volatile private var downUntil = 0L
     @Volatile private var server = ""
 
@@ -49,26 +54,43 @@ object Lossless {
         if (base != server) {
             server = base
             found.clear()
+            unsendable.clear()
             downUntil = 0
         }
-        if (System.currentTimeMillis() < downUntil) return null
+        val now = System.currentTimeMillis()
+        if (now < downUntil) return null
         val key = "$title|$artist"
         found[key]?.let { known -> return known.takeIf { it !== NONE } }
+        if (now < (unsendable[key] ?: 0)) return null
 
         log("Cerco la versione lossless")
         // Anything going wrong here (no answer, a web page instead of JSON) must only mean
-        // "play the song's own source", never a failed song.
-        val result = try {
-            val match = search(base, title, artist, seconds)
-            if (match == null) NONE else open(base, match.first, match.second)
+        // "play the song's own source", never a failed song. The search failing means the server
+        // is out, and it rests.
+        val match = try {
+            search(base, title, artist, seconds)
         } catch (e: Exception) {
-            downUntil = System.currentTimeMillis() + DOWN_MS
+            downUntil = now + DOWN_MS
             log("Server lossless non risponde: ${e.message ?: e.javaClass.simpleName}")
+            return null
+        }
+        if (match == null) {
+            found[key] = NONE
+            log("Non c'è sul server lossless")
+            return null
+        }
+        // The file failing is this recording's trouble: the next songs still ask. Except "too many
+        // requests", which is about all of them.
+        val result = try {
+            open(base, match.first, match.second)
+        } catch (e: Exception) {
+            if (e.message == "HTTP 429") downUntil = now + DOWN_MS else unsendable[key] = now + UNSENDABLE_MS
+            log("Il server lossless ce l'ha ma non lo manda: ${e.message ?: e.javaClass.simpleName}")
             return null
         }
         found[key] = result
         if (result === NONE) {
-            log("Non c'è sul server lossless")
+            log("Il server lossless non manda un file audio")
             return null
         }
         return result

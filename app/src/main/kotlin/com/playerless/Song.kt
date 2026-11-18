@@ -1,6 +1,7 @@
 package com.playerless
 
 import org.json.JSONObject
+import java.text.Normalizer
 
 data class Song(
     val id: String,
@@ -36,14 +37,20 @@ data class Song(
     }
 }
 
-// How a query meets a song's title and artist. Case, apostrophes and spacing don't count: "shottas"
-// finds "Shotta's", "season25" finds "Season 25", as people type them.
+// How a query meets a song's title and artist. Case, accents, apostrophes and spacing don't count:
+// "shottas" finds "Shotta's", "season25" finds "Season 25", and JioSaavn's "Foushee" is the lossless
+// server's "Fousheé", as people and catalogs write them.
 object Match {
+    private val marks = Regex("\\p{M}+")
     private val apostrophes = Regex("['’‘`´]")
     private val nonWord = Regex("[^\\p{L}\\p{N}]+")
 
-    // Lowercase, apostrophes dropped, anything else that isn't a letter or digit one space.
-    fun normalize(text: String) = text.lowercase().replace(apostrophes, "").replace(nonWord, " ").trim()
+    // Lowercase, accents and apostrophes dropped, anything else that isn't a letter or digit one space.
+    fun normalize(text: String) = Normalizer.normalize(text.lowercase(), Normalizer.Form.NFD)
+        .replace(marks, "")
+        .replace(apostrophes, "")
+        .replace(nonWord, " ")
+        .trim()
 
     fun words(query: String) = normalize(query).split(' ').filter { it.isNotEmpty() }
 
