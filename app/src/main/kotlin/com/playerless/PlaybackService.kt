@@ -223,6 +223,7 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
     override fun onDestroy() {
+        Downloads.playing = null
         handler.removeCallbacksAndMessages(null)
         session?.run {
             player.release()
@@ -235,6 +236,8 @@ class PlaybackService : MediaSessionService() {
     // A song counts once 30 s of it were heard, so skipping through a queue doesn't inflate the stats.
     private inner class PlayCounter(private val player: Player) : Player.Listener, Runnable {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            // Its download isn't swapped for a lossless one while it plays.
+            Downloads.playing = mediaItem?.mediaId
             handler.removeCallbacks(this)
             if (mediaItem != null) handler.postDelayed(this, LISTENED_MS)
         }

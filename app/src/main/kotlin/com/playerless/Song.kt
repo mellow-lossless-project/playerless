@@ -10,7 +10,8 @@ data class Song(
     val url: String,
     // The bitrate it was downloaded at. Older downloads don't have one.
     val kbps: Int? = null,
-    // Length in seconds, 0 when unknown. Only search results have it, to match Spotify imports.
+    // Length in seconds, 0 when unknown: search results have it, and it's kept with the song since
+    // 1.2, so the lossless server can tell a live take from the studio one. Older entries lack it.
     val seconds: Int = 0,
 ) {
     fun toJson(): JSONObject = JSONObject()
@@ -20,6 +21,7 @@ data class Song(
         .put("image", image)
         .put("url", url)
         .put("kbps", kbps)
+        .apply { if (seconds > 0) put("seconds", seconds) }
 
     companion object {
         fun fromJson(json: JSONObject) = Song(
@@ -29,6 +31,7 @@ data class Song(
             image = json.getString("image"),
             url = json.getString("url"),
             kbps = json.optInt("kbps").takeIf { it > 0 },
+            seconds = json.optInt("seconds"),
         )
     }
 }

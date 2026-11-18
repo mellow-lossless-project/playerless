@@ -1,6 +1,7 @@
 package com.playerless
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -26,6 +27,13 @@ object Downloads {
 
     // The index, read from disk once and then kept in step with every write: every search reads it.
     @Volatile private var cached: List<Song>? = null
+
+    // The song the player is on, set by the playback service: its file isn't swapped under it.
+    @Volatile var playing: String? = null
+
+    // Main thread. While upgradeToLossless runs: songs done, and in all.
+    var upgrade: Pair<Int, Int>? = null
+        private set
 
     // What was downloaded in this run: a stream may move to the file only if it's the same bytes.
     private val sources = ConcurrentHashMap<String, String>()
@@ -82,6 +90,77 @@ object Downloads {
                 Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
                 onChanged?.invoke()
             }
+        }
+    }
+
+    // Main thread. Swaps each downloaded song that isn't FLAC yet for the lossless server's FLAC,
+    // where the server has one; the others stay as they are. One at a time, behind any download.
+    // done gets how many are FLAC now and how many stayed as they were.
+    fun upgradeToLossless(done: (flac: Int, kept: Int) -> Unit) {
+        if (upgrade != null) return
+        val songs = list()
+        upgrade = 0 to songs.size
+        onChanged?.invoke()
+        executor.execute {
+            var flac = 0
+            var kept = 0
+            fun step(song: Song) {
+                if (runCatching { toFlac(song) }.getOrDefault(false)) flac++ else kept++
+                val progress = flac + kept
+                main.post {
+                    upgrade = progress to songs.size
+                    onChanged?.invoke()
+                }
+            }
+            // A song playing is left for last, in case the player has moved on by then.
+            val later = songs.filter { it.id == playing }
+            songs.filterNot { it in later }.forEach(::step)
+            later.forEach { if (it.id == playing) kept++ else step(it) }
+            main.post {
+                upgrade = null
+                onChanged?.invoke()
+                done(flac, kept)
+            }
+        }
+    }
+
+    // True when the song's file is FLAC now: it already was, or the lossless server had it.
+    private fun toFlac(song: Song): Boolean {
+        val file = audioFile(song.id)
+        if (!file.exists()) return false
+        if (isFlac(file)) return true
+        // The length of the file on the phone picks the same recording on the server.
+        val seconds = song.seconds.takeIf { it > 0 } ?: lengthOf(file)
+        val found = Lossless.resolve(song.title, song.artist, seconds) {} ?: return false
+        if (!found.flac) return false
+        save(found.url, file, headers = mapOf("User-Agent" to Lossless.UA))
+        sources.remove(song.id)
+        val length = found.seconds.takeIf { it > 0 } ?: seconds
+        val kbps = if (length > 0) (file.length() * 8 / length / 1000).toInt() else null
+        // In place: the list of downloads keeps its order.
+        synchronized(this) { write(list().map { if (it.id == song.id) it.copy(kbps = kbps, seconds = length) else it }) }
+        return true
+    }
+
+    private fun isFlac(file: File): Boolean = try {
+        file.inputStream().use { input ->
+            val head = ByteArray(4)
+            input.read(head) == 4 && String(head, Charsets.US_ASCII) == "fLaC"
+        }
+    } catch (_: IOException) {
+        false
+    }
+
+    // A downloaded file's length in seconds, 0 when it can't be read.
+    private fun lengthOf(file: File): Int {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(file.path)
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.div(1000)?.toInt() ?: 0
+        } catch (_: Exception) {
+            0
+        } finally {
+            retriever.release()
         }
     }
 

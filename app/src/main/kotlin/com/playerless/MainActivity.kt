@@ -388,12 +388,36 @@ class MainActivity : Activity() {
             HomeItem.Row(getString(R.string.audio_quality), qualityLabel(Settings.quality), ::chooseQuality),
             HomeItem.Row(getString(R.string.lossless_server), Settings.losslessServer, ::askLosslessServer)
                 .takeIf { Settings.lossless },
+            HomeItem.Row(getString(R.string.lossless_upgrade), upgradeSummary(), ::confirmUpgrade)
+                .takeIf { Settings.lossless && Downloads.list().isNotEmpty() },
             HomeItem.Row(getString(R.string.equalizer), eqSummary) { showScreen(Screen.EQUALIZER) },
             HomeItem.Row(getString(R.string.look), getString(Settings.look.label), ::chooseLook),
             // The posters bring their own inks: the accent is the classic theme's.
             HomeItem.Row(getString(R.string.accent), getString(Settings.accent.label), ::chooseAccent)
                 .takeIf { Settings.look == Look.CLASSIC },
         )
+    }
+
+    private fun upgradeSummary(): String {
+        val (done, total) = Downloads.upgrade ?: return getString(R.string.lossless_upgrade_hint)
+        return getString(R.string.lossless_upgrade_running, done, total)
+    }
+
+    // Downloads already on the phone play from the phone, so lossless reaches them only by swapping
+    // their files: FLAC where the server has it. Big files, hence the warning first.
+    private fun confirmUpgrade() {
+        if (Downloads.upgrade != null) return
+        val app = applicationContext
+        AlertDialog.Builder(this)
+            .setTitle(R.string.lossless_upgrade)
+            .setMessage(getString(R.string.lossless_upgrade_confirm, Downloads.list().size))
+            .setPositiveButton(R.string.lossless_upgrade_start) { _, _ ->
+                Downloads.upgradeToLossless { flac, kept ->
+                    Toast.makeText(app, app.getString(R.string.lossless_upgrade_done, flac, kept), Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun chooseLook() {

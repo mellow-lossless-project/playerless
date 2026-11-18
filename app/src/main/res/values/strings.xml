@@ -36,6 +36,12 @@
     <string name="quality_youtube">YouTube (128 kbps)</string>
     <string name="lossless_server">Server lossless</string>
     <string name="lossless_server_default">Predefinito</string>
+    <string name="lossless_upgrade">Riscarica in lossless</string>
+    <string name="lossless_upgrade_hint">Sostituisce i brani scaricati con il FLAC, dove il server lo ha</string>
+    <string name="lossless_upgrade_running">In corso: %1$d di %2$d</string>
+    <string name="lossless_upgrade_confirm">Brani scaricati: %1$d. Ognuno viene sostituito dal FLAC se il server lo ha; gli altri restano come sono. Un brano in FLAC pesa 25–40 MB: meglio col Wi-Fi.</string>
+    <string name="lossless_upgrade_start">Riscarica</string>
+    <string name="lossless_upgrade_done">Brani in FLAC: %1$d. Rimasti com\'erano: %2$d</string>
     <string name="download_quality">Scarica in</string>
     <string name="song_quality">%1$s · %2$d kbps</string>
     <string name="from_youtube">%1$s · YouTube</string>
