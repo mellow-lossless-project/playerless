@@ -1,0 +1,26 @@
+# Every pushed version tag (v1.1, v1.2, ...) becomes a GitHub release named "Playerless 1.1", with
+# the tag's message as its notes and the committed Playerless.apk attached. Nothing is built here:
+# the APK is the one signed on the PC with the app's key, so it installs over the previous one.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # The whole history, so the tag keeps its message: a shallow checkout drops it.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Publish the APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" Playerless.apk --title "Playerless ${TAG#v}" --notes-from-tag --verify-tag

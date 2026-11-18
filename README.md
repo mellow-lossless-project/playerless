@@ -28,6 +28,8 @@ L'interfaccia è solo in italiano.
 
 **[Scarica Playerless.apk](https://github.com/mellow-lossless-project/playerless/raw/main/Playerless.apk)** (versione 1.1)
 
+Ogni versione è anche nelle [Release](https://github.com/mellow-lossless-project/playerless/releases), con l'APK allegato e le novità. Si installa sopra la precedente: playlist e download restano.
+
 Serve Android 8 o successivo. Al primo avvio dell'installazione il telefono chiederà di consentire le app da fonti sconosciute.
 
 ## Perché è così leggera
