@@ -78,6 +78,7 @@ object SaavnApi {
             artist = unescape(artist),
             image = json.optString("image").replace("http://", "https://"),
             url = url,
+            seconds = info.optString("duration").toIntOrNull() ?: 0,
         )
     }
 

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html><head>
+<script src="yt.solver.lib.min.js"></script>
+<script>var meriyah = lib.meriyah, astring = lib.astring;</script>
+<script src="yt.solver.core.js"></script>
+<script>
+// yt-dlp's solver (github.com/yt-dlp/ejs) finds the functions in YouTube's player that unscramble
+// a stream link: one for the signature, one for the "n" parameter.
+var solvers = null;
+
+function read(name) {
+  return new Promise(function (resolve, reject) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', name);
+    xhr.onload = function () {
+      if (xhr.responseText) resolve(xhr.responseText); else reject(new Error('File vuoto: ' + name));
+    };
+    xhr.onerror = function () { reject(new Error('File mancante: ' + name)); };
+    xhr.send();
+  });
+}
+
+// Preparing a player takes seconds on a phone, so the result is saved and later just run.
+function load(prepared, player) {
+  return read(prepared).catch(function () {
+    return read(player).then(function (code) {
+      var out = jsc({ type: 'player', player: code, requests: [], output_preprocessed: true });
+      if (out.type !== 'result') throw new Error(out.error);
+      try { Bridge.save(out.preprocessed_player); } catch (e) {}
+      return out.preprocessed_player;
+    });
+  }).then(function (code) {
+    var found = { n: null, sig: null };
+    new Function('_result', code)(found);
+    if (typeof found.n !== 'function' || typeof found.sig !== 'function') throw new Error('Funzioni del player non trovate');
+    solvers = found;
+    return 'ok';
+  });
+}
+
+function solve(n, sig) {
+  return JSON.stringify({ n: n ? solvers.n(n) : null, sig: sig ? solvers.sig(sig) : null });
+}
+</script>
+</head><body></body></html>

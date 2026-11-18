@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Classic: black page, #3A3A3A bars, one accent color the user picks. -->
     <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
         <item name="android:colorBackground">#000000</item>
         <item name="android:windowBackground">@android:color/black</item>
@@ -10,6 +11,52 @@
         <item name="android:windowActivityTransitions">false</item>
         <item name="android:colorBackgroundFloating">#3A3A3A</item>
         <item name="android:alertDialogTheme">@style/AppDialog</item>
+
+        <item name="pageColor">#000000</item>
+        <item name="textMain">#FFFFFF</item>
+        <item name="textDim">#808080</item>
+        <item name="textSoft">#B0B0B0</item>
+        <item name="pageIcon">?android:attr/colorAccent</item>
+        <item name="pressedOnPage">@color/pressed</item>
+        <item name="placeholderColor">#3A3A3A</item>
+        <item name="trackColor">#3A3A3A</item>
+
+        <item name="barColor">#3A3A3A</item>
+        <item name="barText">#FFFFFF</item>
+        <item name="barTextDim">#B0B0B0</item>
+        <item name="barIcon">?android:attr/colorAccent</item>
+        <item name="pressedOnBar">@color/pressed</item>
+        <item name="topBarBackground">#3A3A3A</item>
+        <item name="playerBarBackground">#3A3A3A</item>
+
+        <item name="panelColor">#141414</item>
+        <item name="panelText">#808080</item>
+        <item name="panelTextLatest">#B0B0B0</item>
+        <item name="panelTextTitle">#FFFFFF</item>
+        <item name="eqGrid">#262626</item>
+        <item name="eqZero">#4A4A4A</item>
+
+        <item name="tileBand">#B3000000</item>
+        <item name="tileText">#FFFFFF</item>
+        <item name="tileForeground">@drawable/pressed</item>
+        <item name="coverFrame">@android:color/transparent</item>
+        <item name="frameColor">?android:attr/colorAccent</item>
+        <item name="printDark">@android:color/transparent</item>
+        <item name="printLight">@android:color/transparent</item>
+
+        <item name="grainColor">@android:color/transparent</item>
+        <item name="gridColor">@android:color/transparent</item>
+        <item name="ruleColor">@android:color/transparent</item>
+
+        <item name="systemBarColor">#3A3A3A</item>
+        <item name="playerSystemBarColor">#000000</item>
+
+        <item name="titleStyle">@style/SectionTitle</item>
+        <item name="playerTitleStyle">@style/Classic.PlayerTitle</item>
+        <item name="playerArtistStyle">@style/Classic.PlayerArtist</item>
+        <item name="rowTitleStyle">@style/Classic.RowTitle</item>
+        <item name="rowSubtitleStyle">@style/Classic.RowSubtitle</item>
+        <item name="tileLabelStyle">@style/Classic.TileLabel</item>
     </style>
 
     <!-- White buttons: red, blue and purple are under 3:1 on #3A3A3A. No animation, like the rest. -->
@@ -49,5 +96,141 @@
 
     <style name="AppTheme.White">
         <item name="android:colorAccent">@color/accent_white</item>
+    </style>
+
+    <!-- Poster nero, after "Escapism": olive ink on a grainy black page, bars set off by printed
+         rules, covers printed in the two inks. -->
+    <style name="AppTheme.PosterDark">
+        <item name="android:colorBackground">@color/poster_dark_page</item>
+        <item name="android:windowBackground">@color/poster_dark_page</item>
+        <item name="android:colorAccent">@color/poster_olive</item>
+        <item name="android:statusBarColor">@color/poster_dark_page</item>
+        <item name="android:navigationBarColor">@color/poster_dark_page</item>
+        <item name="android:colorBackgroundFloating">#23241F</item>
+        <item name="android:alertDialogTheme">@style/PosterDarkDialog</item>
+
+        <item name="pageColor">@color/poster_dark_page</item>
+        <item name="textMain">@color/poster_olive</item>
+        <item name="textDim">#747E4F</item>
+        <item name="textSoft">#8C9960</item>
+        <item name="pageIcon">@color/poster_olive</item>
+        <item name="pressedOnPage">#26828F56</item>
+        <item name="placeholderColor">#23241F</item>
+        <item name="trackColor">#2E3027</item>
+
+        <item name="barColor">@color/poster_dark_page</item>
+        <item name="barText">@color/poster_olive</item>
+        <item name="barTextDim">#5E6644</item>
+        <item name="barIcon">@color/poster_olive</item>
+        <item name="pressedOnBar">#26828F56</item>
+        <item name="topBarBackground">@drawable/bar_top_ruled</item>
+        <item name="playerBarBackground">@drawable/bar_bottom_ruled</item>
+
+        <item name="panelColor">#121211</item>
+        <item name="panelText">#6B7449</item>
+        <item name="panelTextLatest">#8C9960</item>
+        <item name="panelTextTitle">#A7B477</item>
+        <item name="eqGrid">#262820</item>
+        <item name="eqZero">#3D4230</item>
+
+        <item name="tileBand">#E6191918</item>
+        <item name="tileText">@color/poster_olive</item>
+        <item name="tileForeground">@drawable/frame_pressed</item>
+        <item name="coverFrame">@drawable/frame</item>
+        <item name="frameColor">@color/poster_olive</item>
+        <item name="printDark">@color/poster_dark_page</item>
+        <item name="printLight">@color/poster_olive</item>
+
+        <item name="grainColor">#26FFFFFF</item>
+        <item name="gridColor">@android:color/transparent</item>
+        <item name="ruleColor">#33828F56</item>
+
+        <item name="systemBarColor">@color/poster_dark_page</item>
+        <item name="playerSystemBarColor">@color/poster_dark_page</item>
+
+        <item name="titleStyle">@style/Poster.Title</item>
+        <item name="playerTitleStyle">@style/Poster.PlayerTitle</item>
+        <item name="playerArtistStyle">@style/Poster.PlayerArtist</item>
+        <item name="rowTitleStyle">@style/Poster.RowTitle</item>
+        <item name="rowSubtitleStyle">@style/Poster.RowSubtitle</item>
+        <item name="tileLabelStyle">@style/Poster.TileLabel</item>
+    </style>
+
+    <style name="PosterDarkDialog" parent="android:ThemeOverlay.Material.Dialog.Alert">
+        <item name="android:colorAccent">@color/poster_olive</item>
+        <item name="android:colorBackgroundFloating">#23241F</item>
+        <item name="android:textColorPrimary">#A7B477</item>
+        <item name="android:textColorSecondary">#747E4F</item>
+        <item name="android:textColorAlertDialogListItem">#A7B477</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+
+    <!-- Poster carta, after "Smoking kills": near-black ink on grey paper with a faint grid, the
+         bars as black bands with salmon on them, covers printed black on paper. -->
+    <style name="PosterPaper" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorBackground">@color/poster_paper_page</item>
+        <item name="android:windowBackground">@color/poster_paper_page</item>
+        <item name="android:colorAccent">@color/poster_salmon</item>
+        <item name="android:statusBarColor">@color/poster_ink</item>
+        <item name="android:navigationBarColor">@color/poster_ink</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowActivityTransitions">false</item>
+        <item name="android:colorBackgroundFloating">#E0DFDB</item>
+        <item name="android:alertDialogTheme">@style/PosterPaperDialog</item>
+
+        <item name="pageColor">@color/poster_paper_page</item>
+        <item name="textMain">@color/poster_ink</item>
+        <item name="textDim">#5C6264</item>
+        <item name="textSoft">#2E3437</item>
+        <item name="pageIcon">@color/poster_ink</item>
+        <item name="pressedOnPage">#1F141A1D</item>
+        <item name="placeholderColor">#BEBDB9</item>
+        <item name="trackColor">@color/poster_ink</item>
+
+        <item name="barColor">@color/poster_ink</item>
+        <item name="barText">@color/poster_paper_page</item>
+        <item name="barTextDim">#8C9192</item>
+        <item name="barIcon">@color/poster_salmon</item>
+        <item name="pressedOnBar">#29E2866A</item>
+        <item name="topBarBackground">@color/poster_ink</item>
+        <item name="playerBarBackground">@color/poster_ink</item>
+
+        <item name="panelColor">@color/poster_ink</item>
+        <item name="panelText">#8C9192</item>
+        <item name="panelTextLatest">#BDBCB8</item>
+        <item name="panelTextTitle">@color/poster_salmon</item>
+        <item name="eqGrid">#262D31</item>
+        <item name="eqZero">#3F474B</item>
+
+        <item name="tileBand">#E6141A1D</item>
+        <item name="tileText">@color/poster_paper_page</item>
+        <item name="tileForeground">@drawable/frame_pressed</item>
+        <item name="coverFrame">@drawable/frame</item>
+        <item name="frameColor">@color/poster_ink</item>
+        <item name="printDark">@color/poster_ink</item>
+        <item name="printLight">@color/poster_paper_page</item>
+
+        <item name="grainColor">#24000000</item>
+        <item name="gridColor">#14141A1D</item>
+        <item name="ruleColor">#33141A1D</item>
+
+        <item name="systemBarColor">@color/poster_ink</item>
+        <item name="playerSystemBarColor">@color/poster_ink</item>
+
+        <item name="titleStyle">@style/Poster.Title.Black</item>
+        <item name="playerTitleStyle">@style/Poster.PlayerTitle.Black</item>
+        <item name="playerArtistStyle">@style/Poster.PlayerArtist</item>
+        <item name="rowTitleStyle">@style/Poster.RowTitle</item>
+        <item name="rowSubtitleStyle">@style/Poster.RowSubtitle</item>
+        <item name="tileLabelStyle">@style/Poster.TileLabel</item>
+    </style>
+
+    <style name="PosterPaperDialog" parent="android:ThemeOverlay.Material.Dialog.Alert">
+        <item name="android:colorAccent">@color/poster_ink</item>
+        <item name="android:colorBackgroundFloating">#E0DFDB</item>
+        <item name="android:textColorPrimary">@color/poster_ink</item>
+        <item name="android:textColorSecondary">#5C6264</item>
+        <item name="android:textColorAlertDialogListItem">@color/poster_ink</item>
+        <item name="android:windowAnimationStyle">@null</item>
     </style>
 </resources>

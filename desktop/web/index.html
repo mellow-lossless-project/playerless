@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Playerless</title>
+<link rel="icon" href="icon.svg">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<nav id="nav">
+  <div class="logo" aria-hidden="true"><svg viewBox="40 32 36 44"><path d="M44,36v36l28,-18z"/></svg></div>
+  <button id="navHome" class="nav-button" title="Home" aria-label="Home"></button>
+  <button id="navDownloads" class="nav-button" title="Scaricati" aria-label="Scaricati"></button>
+  <button id="navSettings" class="nav-button" title="Impostazioni" aria-label="Impostazioni"></button>
+</nav>
+
+<main id="main">
+  <header id="top">
+    <button id="searchIcon" class="icon-button" aria-label="Cerca"></button>
+    <input id="search" type="search" placeholder="Cerca un brano" autocomplete="off" spellcheck="false">
+  </header>
+  <div id="titleRow" hidden>
+    <h1 id="listTitle"></h1>
+    <button id="shuffleAll" class="icon-button" title="Riproduci in ordine casuale" aria-label="Riproduci in ordine casuale"></button>
+    <button id="playAll" class="icon-button" title="Riproduci tutto" aria-label="Riproduci tutto"></button>
+  </div>
+  <p id="status" hidden></p>
+  <div id="content"></div>
+  <!-- What the player is doing while a song loads; gone as soon as it plays. -->
+  <pre id="loadLog" hidden></pre>
+</main>
+
+<footer id="bar" hidden>
+  <button id="barSong" class="bar-song" title="Apri il player">
+    <img id="barCover" alt="">
+    <span class="bar-text"><span id="barTitle"></span><span id="barArtist"></span></span>
+  </button>
+  <div class="bar-center">
+    <div class="bar-controls">
+      <button id="prev" class="icon-button" title="Precedente" aria-label="Precedente"></button>
+      <button id="playPause" class="icon-button big" title="Play o pausa (spazio)" aria-label="Play o pausa"></button>
+      <button id="next" class="icon-button" title="Successivo" aria-label="Successivo"></button>
+    </div>
+    <div class="bar-progress">
+      <span id="elapsed">0:00</span>
+      <input id="progress" class="bar" type="range" min="0" max="0" value="0" step="0.1" aria-label="Avanzamento del brano">
+      <span id="duration">0:00</span>
+    </div>
+  </div>
+  <div class="bar-side">
+    <button id="barVisuals" class="icon-button" title="Visuali (V)" aria-label="Visuali"></button>
+    <span id="volumeIcon" aria-hidden="true"></span>
+    <input id="volume" class="bar" type="range" min="0" max="1" step="0.01" aria-label="Volume">
+  </div>
+</footer>
+
+<!-- The full-screen player. -->
+<section id="now" hidden>
+  <button id="nowClose" class="icon-button now-close" title="Chiudi (Esc)" aria-label="Chiudi"></button>
+  <button id="nowVisuals" class="icon-button now-visuals" title="Visuali (V)" aria-label="Visuali"></button>
+  <h2 id="nowTitle"></h2>
+  <div class="now-cover"><img id="nowCover" alt=""></div>
+  <div class="now-progress">
+    <input id="nowProgress" class="bar" type="range" min="0" max="0" value="0" step="0.1" aria-label="Avanzamento del brano">
+    <div class="now-times"><span id="nowElapsed">0:00</span><span id="nowDuration">0:00</span></div>
+  </div>
+  <div class="now-controls">
+    <button id="nowPrev" class="icon-button" aria-label="Precedente"></button>
+    <button id="nowPlayPause" class="icon-button" aria-label="Play o pausa"></button>
+    <button id="nowNext" class="icon-button" aria-label="Successivo"></button>
+  </div>
+  <input id="nowVolume" class="bar" type="range" min="0" max="1" step="0.01" aria-label="Volume">
+</section>
+
+<!-- The visuals: a scene that moves with the music. Filled in when first opened. -->
+<section id="visuals" class="idle" hidden></section>
+
+<div id="toast" hidden></div>
+<audio id="audio" preload="auto"></audio>
+
+<script src="core.js"></script>
+<script src="sources.js"></script>
+<script src="eq.js"></script>
+<script src="visuals.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

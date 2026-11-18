@@ -10,8 +10,8 @@ android {
         applicationId = "com.playerless"
         minSdk = 26
         targetSdk = 29
-        versionCode = 7
-        versionName = "0.7"
+        versionCode = 11
+        versionName = "1.1"
     }
 
     // Media3 ships strings for ~80 locales; keep only the ones we use.
@@ -43,8 +43,10 @@ android {
     }
 
     lint {
-        // targetSdk 29 is deliberate (matches the A750F) and Play rules don't apply.
+        // targetSdk 29 is deliberate (matches the A750F) and Play rules don't apply. JioSaavn's
+        // links come DES/ECB-encrypted: their format, not a choice made here.
         checkReleaseBuilds = false
+        disable += listOf("ExpiredTargetSdkVersion", "GetInstance")
     }
 }
 

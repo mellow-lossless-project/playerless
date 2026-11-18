@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:paddingHorizontal="20dp"
+    android:paddingTop="8dp">
+
+    <com.playerless.EqView
+        android:id="@+id/eqGraph"
+        android:layout_width="match_parent"
+        android:layout_height="280dp"
+        android:contentDescription="@string/equalizer" />
+
+    <TextView
+        android:id="@+id/eqInfo"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minLines="3"
+        android:paddingTop="12dp"
+        android:textColor="?attr/textSoft"
+        android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/eqWidthLabel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="12dp"
+        android:text="@string/eq_width"
+        android:textColor="?attr/textDim"
+        android:textSize="12sp" />
+
+    <SeekBar
+        android:id="@+id/eqWidth"
+        style="@style/PlayerBar"
+        android:contentDescription="@string/eq_width" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <Switch
+            android:id="@+id/eqEnabled"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:switchPadding="16dp"
+            android:text="@string/eq_enabled"
+            android:textColor="?attr/textMain"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/eqReset"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_marginStart="24dp"
+            android:background="@drawable/pressed"
+            android:gravity="center"
+            android:paddingHorizontal="12dp"
+            android:text="@string/eq_reset"
+            android:textColor="?attr/pageIcon"
+            android:textSize="16sp" />
+    </LinearLayout>
+</LinearLayout>

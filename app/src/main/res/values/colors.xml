@@ -9,4 +9,12 @@
     <color name="accent_purple">#D500F9</color>
     <color name="accent_pink">#FF4081</color>
     <color name="accent_white">#FFFFFF</color>
+    <color name="pressed">#1FFFFFFF</color>
+
+    <!-- The poster themes' inks, taken from the two reference posters. -->
+    <color name="poster_dark_page">#191918</color>
+    <color name="poster_olive">#828F56</color>
+    <color name="poster_paper_page">#D4D3D0</color>
+    <color name="poster_ink">#141A1D</color>
+    <color name="poster_salmon">#E2866A</color>
 </resources>

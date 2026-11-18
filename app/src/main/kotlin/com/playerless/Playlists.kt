@@ -34,6 +34,16 @@ object Playlists {
 
     fun rename(id: String, name: String) = update(id) { it.copy(name = name) }
 
+    // Imports reuse the playlist with the same name, so running one again updates instead of copying.
+    fun replace(name: String, songs: List<Song>) {
+        val existing = all.find { it.name == name }
+        if (existing == null) {
+            save(all + Playlist(UUID.randomUUID().toString(), name, songs))
+        } else {
+            update(existing.id) { it.copy(songs = songs) }
+        }
+    }
+
     fun delete(id: String) = save(all.filterNot { it.id == id })
 
     // False when the song was already in the playlist.

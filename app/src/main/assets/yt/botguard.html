@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html><head><script>
+// BotGuard client, adapted from Convx (GPL-3.0). BotGuard is Google's attestation script: run here,
+// it lets YouTube's server issue the token a client needs before it gets a whole stream.
+var signal = null;
+var minter = null;
+
+// YouTube's base64: URL-safe, and sometimes '.' for padding.
+function fromBase64(text) {
+  var bin = atob(text.replace(/-/g, '+').replace(/_/g, '/').replace(/\./g, '='));
+  var bytes = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+function toBase64(bytes) {
+  var bin = '';
+  for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+// The challenge sometimes comes scrambled: base64, every byte shifted by 97.
+function parseChallenge(raw) {
+  var outer = JSON.parse(raw);
+  var data = outer[0];
+  if (outer.length > 1 && typeof outer[1] === 'string') {
+    var bytes = fromBase64(outer[1]);
+    for (var i = 0; i < bytes.length; i++) bytes[i] = (bytes[i] + 97) & 255;
+    data = JSON.parse(new TextDecoder().decode(bytes));
+  }
+  var text = function (list) {
+    return list ? list.find(function (x) { return typeof x === 'string'; }) : null;
+  };
+  return { script: text(data[1]), program: data[4], globalName: data[5] };
+}
+
+// Runs the challenge; answers with what GenerateIT expects.
+function start(raw) {
+  var challenge = parseChallenge(raw);
+  if (!challenge.script) throw new Error('BotGuard senza interprete');
+  new Function(challenge.script)();
+  var vm = window[challenge.globalName];
+  if (!vm || !vm.a) throw new Error('BotGuard non caricato');
+
+  var snapshot = null;
+  vm.a(challenge.program, function (asyncSnapshot) { snapshot = asyncSnapshot; }, true, undefined, function () {}, [[], []]);
+  return new Promise(function (resolve, reject) {
+    var waited = 0;
+    var timer = setInterval(function () {
+      if (snapshot) {
+        clearInterval(timer);
+        resolve();
+      } else if ((waited += 10) > 10000) {
+        clearInterval(timer);
+        reject(new Error('BotGuard non risponde'));
+      }
+    }, 10);
+  }).then(function () {
+    signal = [];
+    return new Promise(function (resolve) {
+      snapshot(resolve, [undefined, undefined, signal, undefined]);
+    });
+  });
+}
+
+// The integrity token from GenerateIT unlocks the minter. Once only.
+function setToken(token) {
+  var getMinter = signal && signal[0];
+  if (typeof getMinter !== 'function') throw new Error('BotGuard senza minter');
+  return Promise.resolve(getMinter(fromBase64(token))).then(function (mint) {
+    if (typeof mint !== 'function') throw new Error('Minter non valido');
+    minter = mint;
+    return 'ok';
+  });
+}
+
+function mint(identifier) {
+  return Promise.resolve(minter(new TextEncoder().encode(identifier))).then(function (bytes) {
+    if (!(bytes instanceof Uint8Array)) throw new Error('Gettone non valido');
+    return toBase64(bytes);
+  });
+}
+</script></head><body></body></html>

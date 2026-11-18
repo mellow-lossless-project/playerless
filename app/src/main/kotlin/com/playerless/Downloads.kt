@@ -14,12 +14,18 @@ import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
+// YouTube's AAC stream, itag 140.
+private const val YOUTUBE_KBPS = 128
+
 // Offline songs live in filesDir/music, listed newest first in index.json.
 object Downloads {
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private val inProgress = HashSet<String>() // Main thread only.
     private val unsafeChars = Regex("[^A-Za-z0-9_-]")
+
+    // The index, read from disk once and then kept in step with every write: every search reads it.
+    @Volatile private var cached: List<Song>? = null
 
     // What was downloaded in this run: a stream may move to the file only if it's the same bytes.
     private val sources = ConcurrentHashMap<String, String>()
@@ -52,15 +58,12 @@ object Downloads {
         return if (cover.exists()) Uri.fromFile(cover).toString() else song.image
     }
 
-    fun list(): List<Song> = synchronized(this) { read() }
+    fun list(): List<Song> = cached ?: synchronized(this) { cached ?: read().also { cached = it } }
 
-    // Every word of the query has to appear in the title or the artist.
+    // Every word of the query has to appear in the title or the artist, matched as the online search does.
     fun search(query: String): List<Song> {
-        val words = query.lowercase().split(Regex("\\s+"))
-        return list().filter { song ->
-            val text = "${song.title} ${song.artist}".lowercase()
-            words.all { it in text }
-        }
+        val words = Match.words(query)
+        return list().filter { Match.hasAll(words, it) }
     }
 
     // A null bitrate keeps the URL as it is, for streams that don't name theirs.
@@ -68,42 +71,79 @@ object Downloads {
         if (!inProgress.add(song.id)) return
         onChanged?.invoke()
         executor.execute {
-            val failure = runCatching { fetch(song, kbps) }.exceptionOrNull()
+            val result = runCatching { fetch(song, kbps) }
             main.post {
                 inProgress.remove(song.id)
-                val message = if (failure == null) R.string.download_done else R.string.download_failed
-                Toast.makeText(appContext, appContext.getString(message, song.title), Toast.LENGTH_SHORT).show()
+                // Says what was saved, so a "lossless" download that isn't FLAC doesn't pass for one.
+                val message = result.fold(
+                    { appContext.getString(R.string.download_done, song.title, it) },
+                    { appContext.getString(R.string.download_failed, song.title) },
+                )
+                Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
                 onChanged?.invoke()
             }
         }
     }
 
     fun delete(song: Song) {
-        synchronized(this) { write(read().filterNot { it.id == song.id }) }
+        synchronized(this) { write(list().filterNot { it.id == song.id }) }
         audioFile(song.id).delete()
         coverFile(song.id).delete()
         onChanged?.invoke()
     }
 
-    private fun fetch(song: Song, kbps: Int?) {
+    // kbps Lossless.KBPS: the lossless server's file. When it doesn't have the song or doesn't answer,
+    // the best the song's own source has, rather than no download at all. Returns what was saved.
+    private fun fetch(song: Song, kbps: Int?): String {
         if (song.image.isNotEmpty()) runCatching { save(Covers.big(song.image), coverFile(song.id)) }
-        val url = if (kbps != null) SaavnApi.withQuality(song.url, kbps) else song.url
-        save(url, audioFile(song.id))
-        sources[song.id] = url
+        val lossless = kbps == Lossless.KBPS
+        if (lossless) fetchLossless(song)?.let { return it }
 
-        // Keeps the online URL, so the song still plays anywhere it's saved if the file is deleted.
-        val saved = song.copy(kbps = kbps)
-        synchronized(this) { write(listOf(saved) + read().filterNot { it.id == song.id }) }
+        // A YouTube song has one rendition, the one it streams, so the stream may move to the file.
+        val youtube = YouTube.isYouTube(song)
+        val quality = kbps?.takeIf { it != Lossless.KBPS }
+        val url = when {
+            youtube -> YtStream.resolve(song.url.removePrefix(YouTube.PREFIX)) {}
+            quality != null -> SaavnApi.withQuality(song.url, quality)
+            else -> song.url
+        }
+        save(url, audioFile(song.id), ranged = youtube)
+        sources[song.id] = if (youtube) song.url else url
+        val saved = if (youtube) YOUTUBE_KBPS else quality ?: SaavnApi.kbpsOf(url)
+        remember(song.copy(kbps = saved))
+        val what = (if (youtube) "YouTube" else "JioSaavn") + (saved?.let { " $it kbps" } ?: "")
+        return if (lossless) "$what: non è sul server lossless" else what
     }
 
-    // Through a .part file, so the target only ever exists complete.
-    private fun save(url: String, target: File) {
+    // Null when the lossless server hasn't the song or doesn't answer.
+    private fun fetchLossless(song: Song): String? {
+        val found = Lossless.resolve(song.title, song.artist, song.seconds) {} ?: return null
+        val file = audioFile(song.id)
+        save(found.url, file, headers = mapOf("User-Agent" to Lossless.UA))
+        // Never the bytes the song streams: a song playing doesn't move onto this file mid-way.
+        sources.remove(song.id)
+        // What the file really is, FLAC or not: its size over its length.
+        val length = found.seconds.takeIf { it > 0 } ?: song.seconds
+        remember(song.copy(kbps = if (length > 0) (file.length() * 8 / length / 1000).toInt() else null))
+        return if (found.flac) found.label else "${found.label}, non FLAC"
+    }
+
+    // Keeps the online URL, so the song still plays anywhere it's saved if the file is deleted.
+    private fun remember(saved: Song) {
+        synchronized(this) { write(listOf(saved) + list().filterNot { it.id == saved.id }) }
+    }
+
+    // Through a .part file, so the target only ever exists complete. YouTube throttles a request
+    // without a range to about twice the song's bitrate; with one, even open-ended, it doesn't.
+    private fun save(url: String, target: File, ranged: Boolean = false, headers: Map<String, String> = emptyMap()) {
         val part = File(dir, "${target.name}.part")
         val conn = URL(url).openConnection() as HttpURLConnection
         try {
             conn.connectTimeout = 4_000
             conn.readTimeout = 15_000
             conn.useCaches = false
+            headers.forEach { (name, value) -> conn.setRequestProperty(name, value) }
+            if (ranged) conn.setRequestProperty("Range", "bytes=0-")
             val written = conn.inputStream.use { input ->
                 part.outputStream().use { input.copyTo(it) }
             }
@@ -129,6 +169,7 @@ object Downloads {
     }.orEmpty()
 
     private fun write(songs: List<Song>) {
+        cached = songs
         val json = JSONArray()
         songs.forEach { json.put(it.toJson()) }
         index.writeText(json.toString())

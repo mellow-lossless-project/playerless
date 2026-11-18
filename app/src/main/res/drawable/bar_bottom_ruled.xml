@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The player bar of the poster themes: like the page, with a printed rule on top. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape>
+            <solid android:color="?attr/barColor" />
+        </shape>
+    </item>
+    <item
+        android:height="1dp"
+        android:gravity="top">
+        <shape>
+            <solid android:color="?attr/frameColor" />
+        </shape>
+    </item>
+</layer-list>

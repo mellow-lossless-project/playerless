@@ -34,6 +34,9 @@ class HomeAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
             notifyDataSetChanged()
         }
 
+    // The band that keeps a tile's name readable over its cover, from the theme.
+    private var band = 0
+
     private class Holder(view: View) : RecyclerView.ViewHolder(view)
 
     override fun getItemViewType(position: Int) = when (items[position]) {
@@ -44,20 +47,25 @@ class HomeAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         val view = LayoutInflater.from(parent.context).inflate(viewType, parent, false)
-        return Holder(view).also { holder ->
-            view.setOnClickListener {
-                when (val item = items.getOrNull(holder.bindingAdapterPosition)) {
-                    is HomeItem.Tile -> item.onClick()
-                    is HomeItem.Row -> item.onClick?.invoke()
-                    else -> Unit
-                }
+        if (viewType == R.layout.item_tile && band == 0) band = parent.context.themeColor(R.attr.tileBand)
+        val holder = Holder(view)
+        // Headers are only text: no touch, so no pressed look either.
+        if (viewType == R.layout.item_header) return holder
+        view.setOnClickListener {
+            when (val item = items.getOrNull(holder.bindingAdapterPosition)) {
+                is HomeItem.Tile -> item.onClick()
+                is HomeItem.Row -> item.onClick?.invoke()
+                else -> Unit
             }
+        }
+        if (viewType == R.layout.item_tile) {
             view.setOnLongClickListener {
                 val onLongClick = (items.getOrNull(holder.bindingAdapterPosition) as? HomeItem.Tile)?.onLongClick
                 onLongClick?.invoke()
                 onLongClick != null
             }
         }
+        return holder
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
@@ -65,6 +73,8 @@ class HomeAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
         when (val item = items[position]) {
             is HomeItem.Header -> (view as TextView).text = item.title
             is HomeItem.Row -> {
+                // A row that only informs doesn't light up under the finger.
+                view.isClickable = item.onClick != null
                 view.findViewById<TextView>(R.id.title).text = item.title
                 view.findViewById<TextView>(R.id.subtitle).run {
                     text = item.subtitle
@@ -77,7 +87,7 @@ class HomeAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
                     text = item.title
                     // Over a cover the name needs a band to stay readable.
                     val hasCover = item.image.isNotEmpty()
-                    setBackgroundColor(if (hasCover) 0xB3000000.toInt() else 0)
+                    setBackgroundColor(if (hasCover) band else 0)
                     layoutParams = (layoutParams as FrameLayout.LayoutParams).apply {
                         gravity = if (hasCover) Gravity.BOTTOM else Gravity.CENTER
                     }

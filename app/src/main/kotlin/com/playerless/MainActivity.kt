@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.SpannableString
+import android.text.SpannableStringBuilder
 import android.text.style.ForegroundColorSpan
 import android.view.View
 import android.view.ViewGroup
@@ -30,17 +31,35 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import java.util.Locale
 import java.util.concurrent.Executors
 
 private const val MOST_PLAYED_COUNT = 2
 private const val KEY_SCREEN = "screen"
 private const val KEY_PLAYLIST = "playlist"
+private const val LOG_DELAY_MS = 300L
+private const val LOG_TICK_MS = 100L
+private const val LOG_LINES = 8
+// How long the first catalog to answer a search waits for the other before showing alone.
+private const val SEARCH_GRACE_MS = 1_500L
+
+// One search, both catalogs at once. Main thread only, except id, query and local.
+private class SearchRun(val id: Int, val query: String, val local: List<Song>) {
+    var saavn: Result<List<Song>>? = null
+    var youtube: Result<List<Song>>? = null
+    var waiting = false
+    var warmed = false
+    val complete get() = saavn != null && youtube != null
+}
 
 class MainActivity : Activity() {
-    private enum class Screen { HOME, SEARCH, DOWNLOADS, PLAYLIST, SETTINGS }
+    private enum class Screen { HOME, SEARCH, DOWNLOADS, PLAYLIST, SETTINGS, EQUALIZER }
 
+    // JioSaavn's searches and YouTube's, one thread each, so a slow catalog never holds up the other.
     private val executor = Executors.newSingleThreadExecutor()
+    private val youtubeSearch = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
+    private val logTick = Runnable { renderLog() }
 
     private lateinit var search: EditText
     private lateinit var titleRow: View
@@ -53,6 +72,7 @@ class MainActivity : Activity() {
     private lateinit var playerTitle: TextView
     private lateinit var playerArtist: TextView
     private lateinit var playPause: ImageButton
+    private lateinit var loadLog: TextView
 
     private val songAdapter: SongAdapter =
         SongAdapter(::playFromList, ::actionIcon, ::onSongAction, ::showSongMenu, ::songSubtitle)
@@ -65,7 +85,13 @@ class MainActivity : Activity() {
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
     private var playerScreen: PlayerScreen? = null
+    private var eqView: View? = null
     private var pendingQueue: (() -> Unit)? = null
+    private lateinit var skin: Skin
+
+    // Off screen nothing is drawn; whatever changed meanwhile is drawn in onStart.
+    private var started = false
+    private var stale = false
 
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) = render()
@@ -73,14 +99,21 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         Settings.init(this)
-        setTheme(Settings.accent.theme)
+        setTheme(Settings.theme)
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        skin = Skin(this)
+        Covers.inks = skin.inks
+        // The poster page's grain and grid, under everything that has no background of its own.
+        if (Settings.look != Look.CLASSIC) window.setBackgroundDrawable(skin.page())
         Downloads.init(this)
         Downloads.onChanged = ::refreshList
         Playlists.init(this)
         PlayStats.init(this)
         Covers.init(this)
+        Equalizer.init(this)
+        YouTube.init(this)
+        YtStream.init(this)
 
         search = findViewById(R.id.search)
         titleRow = findViewById(R.id.titleRow)
@@ -93,6 +126,10 @@ class MainActivity : Activity() {
         playerTitle = findViewById(R.id.playerTitle)
         playerArtist = findViewById(R.id.playerArtist)
         playPause = findViewById(R.id.playPause)
+        loadLog = findViewById(R.id.loadLog)
+        LoadLog.onChanged = ::renderLog
+        NowPlaying.onChanged = ::render
+        SpotifyImport.onChanged = { if (screen == Screen.HOME) refreshList() }
 
         // Tiles take one of the two columns, everything else the whole width.
         results.layoutManager = GridLayoutManager(this, 2).apply {
@@ -105,6 +142,11 @@ class MainActivity : Activity() {
             }
         }
         results.itemAnimator = null
+        results.setHasFixedSize(true)
+        if (skin.ruleColor != 0) {
+            val density = resources.displayMetrics.density
+            results.addItemDecoration(RuleDecoration(skin.ruleColor, 20 * density, density))
+        }
         // Swapping adapters keeps the pool, so going back to a screen doesn't inflate it again.
         results.recycledViewPool.setMaxRecycledViews(0, 16)
 
@@ -173,20 +215,38 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        // Most played changes while the app is away. Skips the first start: onCreate just built it.
-        if (screen == Screen.HOME && controller != null) refreshList()
+        started = true
+        // Most played changes while the app is away, and the player kept going.
+        if (stale || screen == Screen.HOME) refreshList()
+        render()
         playerScreen?.resume()
+        renderLog()
+    }
+
+    // The Spotify tool on the PC pushes its file, then reopens the app: that lands here.
+    override fun onResume() {
+        super.onResume()
+        SpotifyImport.checkForFile(this)
     }
 
     override fun onStop() {
+        started = false
+        // A focused field keeps blinking its cursor, redrawing twice a second an app no one sees.
+        search.clearFocus()
         playerScreen?.pause()
+        main.removeCallbacks(logTick)
         super.onStop()
     }
 
     override fun onDestroy() {
         controllerFuture?.let { MediaController.releaseFuture(it) }
         Downloads.onChanged = null
+        LoadLog.onChanged = null
+        NowPlaying.onChanged = null
+        SpotifyImport.onChanged = null
+        main.removeCallbacks(logTick)
         executor.shutdown()
+        youtubeSearch.shutdown()
         super.onDestroy()
     }
 
@@ -196,30 +256,49 @@ class MainActivity : Activity() {
         when {
             playerScreen?.isOpen == true -> playerScreen?.close()
             screen == Screen.HOME -> moveTaskToBack(true)
+            screen == Screen.EQUALIZER -> showScreen(Screen.SETTINGS)
             else -> showScreen(Screen.HOME)
         }
     }
 
     private fun openPlayerScreen() {
         val opened = playerScreen ?: run {
-            val view = layoutInflater.inflate(R.layout.view_player, null)
-            val size = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            addContentView(view, size)
-            PlayerScreen(view, window) { controller }.also { playerScreen = it }
+            val root = findViewById<ViewGroup>(android.R.id.content)
+            val view = layoutInflater.inflate(R.layout.view_player, root, false)
+            root.addView(view)
+            PlayerScreen(view, window, skin) { controller }.also { playerScreen = it }
         }
+        hideKeyboard()
         opened.open()
     }
 
     private fun showScreen(target: Screen) {
         screen = target
+        hideKeyboard()
         refreshList()
         results.scrollToPosition(0)
     }
 
+    // Leaving the search field for another screen shouldn't leave the keyboard over it.
+    private fun hideKeyboard() {
+        if (!search.hasFocus()) return
+        getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(search.windowToken, 0)
+        search.clearFocus()
+    }
+
     private fun refreshList() {
+        if (!started) {
+            stale = true
+            return
+        }
+        stale = false
+        val equalizer = screen == Screen.EQUALIZER
+        results.visibility = if (equalizer) View.GONE else View.VISIBLE
+        eqView?.visibility = if (equalizer) View.VISIBLE else View.GONE
         when (screen) {
             Screen.HOME -> showItems(null, homeItems())
             Screen.SETTINGS -> showItems(getString(R.string.settings), settingsItems())
+            Screen.EQUALIZER -> showEqualizer()
             Screen.SEARCH -> showSongs(null, searchResults, searchStatus)
             Screen.DOWNLOADS -> {
                 val songs = Downloads.list()
@@ -236,6 +315,18 @@ class MainActivity : Activity() {
                 }
             }
         }
+    }
+
+    // Built the first time, under the loading log, and kept: the list stays as it was behind it.
+    private fun showEqualizer() {
+        if (eqView == null) {
+            val content = findViewById<ViewGroup>(R.id.content)
+            val view = layoutInflater.inflate(R.layout.view_eq, content, false)
+            content.addView(view, content.indexOfChild(loadLog))
+            EqScreen(view)
+            eqView = view
+        }
+        showHeader(getString(R.string.equalizer), null)
     }
 
     private fun showItems(title: String?, items: List<HomeItem>) {
@@ -257,7 +348,8 @@ class MainActivity : Activity() {
     private fun showHeader(title: String?, message: String?) {
         listTitle.text = title
         titleRow.visibility = if (title == null) View.GONE else View.VISIBLE
-        val canPlayAll = screen == Screen.PLAYLIST && message == null
+        // Downloads too: offline they are the whole library.
+        val canPlayAll = (screen == Screen.PLAYLIST || screen == Screen.DOWNLOADS) && message == null
         playAll.visibility = if (canPlayAll) View.VISIBLE else View.GONE
         shuffleAll.visibility = playAll.visibility
         status.text = message
@@ -283,17 +375,70 @@ class MainActivity : Activity() {
             HomeItem.Tile(song.title, coverOf(song), { showSongMenu(song) }) { play(top, index) }
         }.ifEmpty { listOf(HomeItem.Row(getString(R.string.most_played_empty), null)) }
 
-        return playlists + create + HomeItem.Header(getString(R.string.most_played)) + mostPlayed
+        val importing = listOfNotNull(SpotifyImport.progress?.let { HomeItem.Row(it, null) })
+        return importing + playlists + create + HomeItem.Header(getString(R.string.most_played)) + mostPlayed
     }
 
     private fun coverOf(song: Song?): String = song?.let { Covers.big(Downloads.imageFor(it)) }.orEmpty()
 
     private fun settingsItems(): List<HomeItem> {
-        val quality = getString(R.string.quality_kbps, Settings.quality)
-        return listOf(
-            HomeItem.Row(getString(R.string.audio_quality), quality, ::chooseQuality),
-            HomeItem.Row(getString(R.string.accent), getString(Settings.accent.label), ::chooseAccent),
+        val eq = Equalizer.state
+        val eqSummary = if (eq.enabled) resources.getQuantityString(R.plurals.eq_on, eq.points.size, eq.points.size) else getString(R.string.eq_off)
+        return listOfNotNull(
+            HomeItem.Row(getString(R.string.audio_quality), qualityLabel(Settings.quality), ::chooseQuality),
+            HomeItem.Row(getString(R.string.lossless_server), Settings.losslessServer, ::askLosslessServer)
+                .takeIf { Settings.lossless },
+            HomeItem.Row(getString(R.string.equalizer), eqSummary) { showScreen(Screen.EQUALIZER) },
+            HomeItem.Row(getString(R.string.look), getString(Settings.look.label), ::chooseLook),
+            // The posters bring their own inks: the accent is the classic theme's.
+            HomeItem.Row(getString(R.string.accent), getString(Settings.accent.label), ::chooseAccent)
+                .takeIf { Settings.look == Look.CLASSIC },
         )
+    }
+
+    private fun chooseLook() {
+        val looks = Look.entries
+        val labels = looks.map { getString(it.label) }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.look)
+            .setSingleChoiceItems(labels.toTypedArray(), looks.indexOf(Settings.look)) { dialog, which ->
+                dialog.dismiss()
+                if (looks[which] == Settings.look) return@setSingleChoiceItems
+                Settings.look = looks[which]
+                recreate()
+            }
+            .show()
+    }
+
+    private fun qualityLabel(kbps: Int) =
+        getString(if (kbps == Lossless.KBPS) R.string.quality_lossless else R.string.quality_saavn, kbps)
+
+    private fun askLosslessServer() {
+        val current = Settings.losslessServer
+        val input = EditText(this).apply {
+            setText(current)
+            setSelection(current.length)
+            setSingleLine()
+            hint = Lossless.DEFAULT_SERVER
+        }
+        val padding = (24 * resources.displayMetrics.density).toInt()
+        val container = FrameLayout(this).apply {
+            setPadding(padding, padding, padding, 0)
+            addView(input)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.lossless_server)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                Settings.losslessServer = input.text.toString()
+                refreshList()
+            }
+            .setNeutralButton(R.string.lossless_server_default) { _, _ ->
+                Settings.losslessServer = ""
+                refreshList()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun chooseAccent() {
@@ -315,7 +460,7 @@ class MainActivity : Activity() {
 
     private fun chooseQuality() {
         val qualities = Settings.QUALITIES
-        val labels = qualities.map { getString(R.string.quality_kbps, it) }
+        val labels = qualities.map(::qualityLabel)
         AlertDialog.Builder(this)
             .setTitle(R.string.audio_quality)
             .setSingleChoiceItems(labels.toTypedArray(), qualities.indexOf(Settings.quality)) { dialog, which ->
@@ -345,23 +490,27 @@ class MainActivity : Activity() {
         }
     }
 
+    // Lossless first, from the lossless server, then the renditions of the song's own source. A null
+    // bitrate downloads the song as it streams.
     private fun chooseDownloadQuality(song: Song) {
         val best = SaavnApi.kbpsOf(song.url)
-        val qualities = Settings.QUALITIES.filter { best != null && it <= best }
-        // Nothing to choose: one rendition, or a stream that doesn't name its bitrate.
-        if (qualities.size < 2) {
-            Downloads.download(song, qualities.firstOrNull())
-            return
+        val choices = ArrayList<Pair<Int?, String>>()
+        choices += Lossless.KBPS to qualityLabel(Lossless.KBPS)
+        when {
+            YouTube.isYouTube(song) -> choices += null to getString(R.string.quality_youtube)
+            best == null -> choices += null to getString(R.string.quality_saavn_stream)
+            else -> Settings.QUALITIES.filter { it != Lossless.KBPS && it <= best }.forEach { choices += it to qualityLabel(it) }
         }
-        val labels = qualities.map { getString(R.string.quality_kbps, it) }
         AlertDialog.Builder(this)
             .setTitle(R.string.download_quality)
-            .setItems(labels.toTypedArray()) { _, which -> Downloads.download(song, qualities[which]) }
+            .setItems(choices.map { it.second }.toTypedArray()) { _, which -> Downloads.download(song, choices[which].first) }
             .show()
     }
 
     private fun songSubtitle(song: Song): String {
-        if (screen != Screen.DOWNLOADS) return song.artist
+        if (screen != Screen.DOWNLOADS) {
+            return if (YouTube.isYouTube(song)) getString(R.string.from_youtube, song.artist) else song.artist
+        }
         val kbps = song.kbps ?: SaavnApi.kbpsOf(song.url)
         return if (kbps != null) getString(R.string.song_quality, song.artist, kbps) else song.artist
     }
@@ -462,9 +611,7 @@ class MainActivity : Activity() {
 
     private fun runSearch(query: String) {
         if (query.isEmpty()) return
-        getSystemService(InputMethodManager::class.java)
-            .hideSoftInputFromWindow(search.windowToken, 0)
-        search.clearFocus()
+        hideKeyboard()
 
         // Downloaded songs show up at once and keep working without a network.
         val local = Downloads.search(query)
@@ -472,23 +619,102 @@ class MainActivity : Activity() {
         searchStatus = getString(R.string.searching).takeIf { local.isEmpty() }
         showScreen(Screen.SEARCH)
 
-        val id = ++searchId
+        // Both catalogs at once, each on its own thread. A search typed meanwhile skips the queue.
+        val run = SearchRun(++searchId, query, local)
         executor.execute {
-            if (id != searchId) return@execute
-            val songs = runCatching { SaavnApi.search(query) }
+            if (run.id != searchId) return@execute
+            val found = runCatching { SaavnApi.search(query) }
             main.post {
-                if (id != searchId || isDestroyed) return@post
-                val found = songs.getOrNull()
-                val localIds = local.map { it.id }.toSet()
-                searchResults = local + found.orEmpty().filterNot { it.id in localIds }
-                searchStatus = when {
-                    searchResults.isNotEmpty() -> null
-                    found == null -> getString(R.string.network_error)
-                    else -> getString(R.string.no_results)
-                }
-                refreshList()
+                run.saavn = found
+                arrived(run)
             }
         }
+        youtubeSearch.execute {
+            if (run.id != searchId) return@execute
+            val found = runCatching { YouTube.search(query) }
+            main.post {
+                run.youtube = found
+                arrived(run)
+            }
+        }
+    }
+
+    // The first catalog to answer waits a moment for the other, so the list usually shows once and
+    // whole. A catalog slower than that doesn't hold the other back: it joins the list when it comes.
+    private fun arrived(run: SearchRun) {
+        if (run.id != searchId || isDestroyed) return
+        if (run.complete) {
+            showResults(run)
+        } else if (!run.waiting) {
+            run.waiting = true
+            main.postDelayed({ if (!run.complete) showResults(run) }, SEARCH_GRACE_MS)
+        }
+    }
+
+    private fun showResults(run: SearchRun) {
+        if (run.id != searchId || isDestroyed) return
+        val saavn = run.saavn
+        val youtube = run.youtube
+        val found = merge(run.query, saavn?.getOrNull().orEmpty(), youtube?.getOrNull().orEmpty())
+        val localIds = run.local.mapTo(HashSet()) { it.id }
+        searchResults = run.local + found.filterNot { it.id in localIds }
+        val failed = saavn?.isFailure == true && youtube?.isFailure == true
+        searchStatus = when {
+            searchResults.isNotEmpty() -> null
+            !run.complete -> getString(R.string.searching)
+            failed -> getString(R.string.network_error)
+            else -> getString(R.string.no_results)
+        }
+        if (screen == Screen.SEARCH) refreshList()
+        if (!run.warmed && found.any(YouTube::isYouTube)) {
+            run.warmed = true
+            YtStream.warmUp()
+        }
+    }
+
+    // Best match first: the more of the query a song has in its title and artist, the higher. For
+    // artists JioSaavn lacks it fills its answer with other songs of the same name; the song itself
+    // then comes from YouTube and must still come first. On a tie JioSaavn wins: it starts at once
+    // and goes up to 320 kbps. A YouTube song JioSaavn also has is left out.
+    private fun merge(query: String, saavn: List<Song>, youtube: List<Song>): List<Song> {
+        val words = Match.words(query)
+        val onSaavn = saavn.mapTo(HashSet(), ::matchKey)
+        return (saavn + youtube.filterNot { matchKey(it) in onSaavn })
+            .map { it to Match.score(words, it) }
+            .sortedByDescending { it.second }
+            .map { it.first }
+    }
+
+    private fun matchKey(song: Song) = Match.normalize(song.title) + "|" + Match.normalize(song.artist.substringBefore(','))
+
+    // Shown only past a short wait, so songs that start at once never flash it.
+    private fun renderLog() {
+        main.removeCallbacks(logTick)
+        if (!started) return
+        // The clock keeps moving while it loads: proof the app isn't stuck.
+        if (LoadLog.loading) main.postDelayed(logTick, LOG_TICK_MS)
+        if (!LoadLog.visible || (LoadLog.loading && LoadLog.elapsedMs < LOG_DELAY_MS)) {
+            loadLog.visibility = View.GONE
+            return
+        }
+        val text = SpannableStringBuilder()
+        if (LoadLog.loading) {
+            val seconds = String.format(Locale.ITALY, "%.1f", LoadLog.elapsedMs / 1000.0)
+            text.append(getString(R.string.loading_song, LoadLog.title, seconds), ForegroundColorSpan(skin.panelTextTitle), 0)
+        }
+        val lines = LoadLog.lines.takeLast(LOG_LINES)
+        lines.forEachIndexed { index, line ->
+            if (text.isNotEmpty()) text.append('\n')
+            // A failure in the accent color; otherwise the newest step stands out from the ones done.
+            val color = when {
+                LoadLog.isFailure(line) -> skin.accent
+                index == lines.lastIndex -> skin.panelTextLatest
+                else -> null
+            }
+            if (color != null) text.append(line, ForegroundColorSpan(color), 0) else text.append(line)
+        }
+        loadLog.text = text
+        loadLog.visibility = View.VISIBLE
     }
 
     private fun isOnline() = getSystemService(ConnectivityManager::class.java).activeNetwork != null
@@ -528,6 +754,7 @@ class MainActivity : Activity() {
         val original = Bundle().apply {
             putString(EXTRA_URL, song.url)
             putString(EXTRA_IMAGE, song.image)
+            putInt(EXTRA_SECONDS, song.seconds)
         }
         return MediaItem.Builder()
             .setMediaId(song.id)
@@ -544,6 +771,7 @@ class MainActivity : Activity() {
     }
 
     private fun render() {
+        if (!started) return
         playerScreen?.takeIf { it.isOpen }?.render()
         val player = controller
         val metadata = player?.currentMediaItem?.mediaMetadata

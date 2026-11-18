@@ -15,20 +15,45 @@ enum class Accent(val label: Int, val theme: Int, val color: Int) {
     WHITE(R.string.accent_white, R.style.AppTheme_White, R.color.accent_white),
 }
 
+// The app's look. Classic wears the accent the user picks; the posters bring their own inks.
+enum class Look(val label: Int, val theme: Int) {
+    CLASSIC(R.string.look_classic, 0),
+    POSTER_DARK(R.string.look_poster_dark, R.style.AppTheme_PosterDark),
+    POSTER_PAPER(R.string.look_poster_paper, R.style.PosterPaper),
+}
+
 object Settings {
-    val QUALITIES = listOf(320, 160, 96)
+    // Best first: lossless, then JioSaavn's renditions. YouTube is always 128 kbps.
+    val QUALITIES = listOf(Lossless.KBPS, 320, 160, 96)
+    const val DEFAULT_QUALITY = 320
 
     private lateinit var prefs: SharedPreferences
 
     fun init(context: Context) {
-        prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        if (!::prefs.isInitialized) prefs = context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
     }
 
     var quality: Int
-        get() = prefs.getInt("quality", QUALITIES.first())
+        get() = prefs.getInt("quality", DEFAULT_QUALITY).takeIf { it in QUALITIES } ?: DEFAULT_QUALITY
         set(value) = prefs.edit().putInt("quality", value).apply()
+
+    val lossless: Boolean get() = quality == Lossless.KBPS
+
+    var losslessServer: String
+        get() = prefs.getString("lossless_server", null) ?: Lossless.DEFAULT_SERVER
+        set(value) {
+            val link = value.trim().trimEnd('/').let { if (it.isEmpty() || "://" in it) it else "https://$it" }
+            prefs.edit().putString("lossless_server", link.ifEmpty { null }).apply()
+        }
 
     var accent: Accent
         get() = Accent.entries.find { it.name == prefs.getString("accent", null) } ?: Accent.RED
         set(value) = prefs.edit().putString("accent", value.name).apply()
+
+    var look: Look
+        get() = Look.entries.find { it.name == prefs.getString("look", null) } ?: Look.CLASSIC
+        set(value) = prefs.edit().putString("look", value.name).apply()
+
+    // The theme the activity wears: the look, and in the classic one the accent too.
+    val theme: Int get() = look.let { if (it == Look.CLASSIC) accent.theme else it.theme }
 }

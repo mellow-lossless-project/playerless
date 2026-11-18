@@ -1,11 +1,113 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- The roots the type styles below hang from, by name. -->
+    <style name="Classic" />
+
+    <style name="Poster" />
+
+    <!-- Classic type: what the app always had. -->
     <style name="SectionTitle">
         <item name="android:fontFamily">sans-serif-condensed</item>
         <item name="android:textColor">?android:attr/colorAccent</item>
         <item name="android:textSize">26sp</item>
     </style>
 
+    <style name="Classic.PlayerTitle" parent="SectionTitle">
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:gravity">center</item>
+        <item name="android:maxLines">2</item>
+        <item name="android:textSize">34sp</item>
+    </style>
+
+    <style name="Classic.PlayerArtist">
+        <item name="android:textColor">?attr/textSoft</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+
+    <style name="Classic.RowTitle">
+        <item name="android:textColor">?attr/textMain</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+
+    <style name="Classic.RowSubtitle">
+        <item name="android:textColor">?attr/textDim</item>
+        <item name="android:textSize">12sp</item>
+    </style>
+
+    <style name="Classic.TileLabel">
+        <item name="android:textColor">?attr/tileText</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+
+    <!-- Poster type: big tight capitals for what names things, small spaced-out capitals for the
+         rest, like the print on the two posters. Condensed for "nero", black weight for "carta". -->
+    <style name="Poster.Title">
+        <item name="android:fontFamily">sans-serif-condensed</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:letterSpacing">-0.01</item>
+        <item name="android:textColor">?attr/textMain</item>
+        <item name="android:textSize">30sp</item>
+    </style>
+
+    <style name="Poster.Title.Black">
+        <item name="android:fontFamily">sans-serif-black</item>
+        <item name="android:textStyle">normal</item>
+        <item name="android:letterSpacing">-0.03</item>
+        <item name="android:textSize">28sp</item>
+    </style>
+
+    <!-- The song's name as a poster headline: as big as fits two lines across the screen. -->
+    <style name="Poster.PlayerTitle" parent="Poster.Title">
+        <item name="android:layout_height">132dp</item>
+        <item name="android:autoSizeTextType">uniform</item>
+        <item name="android:autoSizeMinTextSize">24sp</item>
+        <item name="android:autoSizeMaxTextSize">96sp</item>
+        <item name="android:autoSizeStepGranularity">2sp</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:gravity">center</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:lineSpacingMultiplier">0.85</item>
+        <item name="android:maxLines">2</item>
+    </style>
+
+    <style name="Poster.PlayerTitle.Black">
+        <item name="android:fontFamily">sans-serif-black</item>
+        <item name="android:textStyle">normal</item>
+        <item name="android:letterSpacing">-0.03</item>
+    </style>
+
+    <style name="Poster.PlayerArtist">
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:letterSpacing">0.18</item>
+        <item name="android:textColor">?attr/textSoft</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+
+    <style name="Poster.RowTitle">
+        <item name="android:fontFamily">sans-serif-condensed</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:letterSpacing">0.01</item>
+        <item name="android:textColor">?attr/textMain</item>
+        <item name="android:textSize">17sp</item>
+    </style>
+
+    <style name="Poster.RowSubtitle">
+        <item name="android:textAllCaps">true</item>
+        <item name="android:letterSpacing">0.1</item>
+        <item name="android:textColor">?attr/textDim</item>
+        <item name="android:textSize">11sp</item>
+    </style>
+
+    <style name="Poster.TileLabel" parent="Poster.RowTitle">
+        <item name="android:textColor">?attr/tileText</item>
+        <item name="android:textSize">15sp</item>
+    </style>
+
+    <!-- Shared pieces. -->
     <style name="PlayerBar">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">48dp</item>
@@ -19,21 +121,44 @@
         <item name="android:thumb">@null</item>
     </style>
 
+    <style name="PlayerTime">
+        <item name="android:layout_height">wrap_content</item>
+        <!-- Digits of one width, so the time doesn't shift as it counts. -->
+        <item name="android:fontFeatureSettings">tnum</item>
+        <item name="android:textColor">?attr/textDim</item>
+        <item name="android:textSize">12sp</item>
+    </style>
+
     <style name="PlayerButton">
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">88dp</item>
         <item name="android:layout_weight">1</item>
-        <item name="android:background">@null</item>
+        <item name="android:background">@drawable/pressed</item>
         <item name="android:padding">0dp</item>
         <item name="android:scaleType">fitCenter</item>
+        <item name="android:tint">?attr/pageIcon</item>
     </style>
 
     <style name="NavButton">
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">match_parent</item>
         <item name="android:layout_weight">1</item>
-        <item name="android:background">@null</item>
+        <item name="android:background">@drawable/pressed_bar</item>
         <item name="android:padding">17dp</item>
         <item name="android:scaleType">fitCenter</item>
+        <item name="android:tint">?attr/barIcon</item>
+    </style>
+
+    <!-- 48 dp icon buttons, on the page or on a bar. -->
+    <style name="IconButton">
+        <item name="android:layout_width">48dp</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:background">@drawable/pressed</item>
+        <item name="android:tint">?attr/pageIcon</item>
+    </style>
+
+    <style name="BarIconButton" parent="IconButton">
+        <item name="android:background">@drawable/pressed_bar</item>
+        <item name="android:tint">?attr/barIcon</item>
     </style>
 </resources>

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What a theme sets beyond Android's own attributes. Layouts and code read only these, so the
+     classic theme and the two poster ones share every layout. -->
+<resources>
+    <!-- The page under the lists, and what's drawn on it. -->
+    <attr name="pageColor" format="color" />
+    <attr name="textMain" format="color" />
+    <attr name="textDim" format="color" />
+    <attr name="textSoft" format="color" />
+    <attr name="pageIcon" format="color" />
+    <attr name="pressedOnPage" format="color" />
+    <attr name="placeholderColor" format="color" />
+    <attr name="trackColor" format="color" />
+
+    <!-- The bars: search on top, the player and the navigation at the bottom. -->
+    <attr name="barColor" format="color" />
+    <attr name="barText" format="color" />
+    <attr name="barTextDim" format="color" />
+    <attr name="barIcon" format="color" />
+    <attr name="pressedOnBar" format="color" />
+    <attr name="topBarBackground" format="reference|color" />
+    <attr name="playerBarBackground" format="reference|color" />
+
+    <!-- The loading log and the equalizer's graph. -->
+    <attr name="panelColor" format="color" />
+    <attr name="panelText" format="color" />
+    <attr name="panelTextLatest" format="color" />
+    <attr name="panelTextTitle" format="color" />
+    <attr name="eqGrid" format="color" />
+    <attr name="eqZero" format="color" />
+
+    <!-- Covers: the band under a tile's name, the frame, the two inks of the poster print. -->
+    <attr name="tileBand" format="color" />
+    <attr name="tileText" format="color" />
+    <attr name="tileForeground" format="reference" />
+    <attr name="coverFrame" format="reference|color" />
+    <attr name="frameColor" format="color" />
+    <attr name="printDark" format="color" />
+    <attr name="printLight" format="color" />
+
+    <!-- The poster page: specks of grain, a faint grid, lines between rows. 0 is none. -->
+    <attr name="grainColor" format="color" />
+    <attr name="gridColor" format="color" />
+    <attr name="ruleColor" format="color" />
+
+    <!-- Status and navigation bars, outside and inside the full-screen player. -->
+    <attr name="systemBarColor" format="color" />
+    <attr name="playerSystemBarColor" format="color" />
+
+    <!-- Type. -->
+    <attr name="titleStyle" format="reference" />
+    <attr name="playerTitleStyle" format="reference" />
+    <attr name="playerArtistStyle" format="reference" />
+    <attr name="rowTitleStyle" format="reference" />
+    <attr name="rowSubtitleStyle" format="reference" />
+    <attr name="tileLabelStyle" format="reference" />
+</resources>

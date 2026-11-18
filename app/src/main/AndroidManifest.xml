@@ -25,6 +25,14 @@
             </intent-filter>
         </activity>
 
+        <!-- For the desktop app's import over USB: only adb's shell holds DUMP. See ExportProvider. -->
+        <provider
+            android:name=".ExportProvider"
+            android:authorities="com.playerless.export"
+            android:exported="true"
+            android:readPermission="android.permission.DUMP"
+            android:writePermission="android.permission.DUMP" />
+
         <service
             android:name=".PlaybackService"
             android:exported="true"
