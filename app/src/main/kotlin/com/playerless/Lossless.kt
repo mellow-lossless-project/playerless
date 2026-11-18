@@ -27,7 +27,13 @@ object Lossless {
     private const val MAX_DURATION_DIFF_S = 5
     // A server that didn't answer (or said "too many requests") is left alone for a while, so it
     // costs one song a timeout, not every song.
-    private const val DOWN_MS = 3 * 60_000L
+    private const val DOWN_MS = 60_000L
+
+    // Measured 2026-11-18: a search takes 1-3 s, a file's first bytes 0.3-0.5 s, and a file the
+    // server can't get hangs 30 s before failing. So a search gets time to answer, a file doesn't.
+    private const val CONNECT_MS = 4_000
+    private const val SEARCH_READ_MS = 7_000
+    private const val FILE_READ_MS = 4_000
 
     // A recording the server lists but can't send (Fousheé's "Deep End": 403 or 502 after 30 s, on
     // 2026-11-18) is passed over for a while: only that song plays from its own source.
@@ -43,9 +49,12 @@ object Lossless {
     @Volatile private var downUntil = 0L
     @Volatile private var server = ""
 
-    // A file from the server broke off while playing: the server rests like one that didn't answer.
-    fun failed() {
-        downUntil = System.currentTimeMillis() + DOWN_MS
+    // A song's file from the server broke off while playing: that song isn't asked about for a
+    // while, so playing it again goes straight to its own source.
+    fun failed(title: String, artist: String) {
+        val key = "$title|$artist"
+        found.remove(key)
+        unsendable[key] = System.currentTimeMillis() + UNSENDABLE_MS
     }
 
     // Blocking: call off the main thread. Null when the server is down or hasn't the song.
@@ -58,10 +67,11 @@ object Lossless {
             downUntil = 0
         }
         val now = System.currentTimeMillis()
-        if (now < downUntil) return null
         val key = "$title|$artist"
+        // What's known already needs no server: a file found before plays even while it rests.
         found[key]?.let { known -> return known.takeIf { it !== NONE } }
         if (now < (unsendable[key] ?: 0)) return null
+        if (now < downUntil) return null
 
         log("Cerco la versione lossless")
         // Anything going wrong here (no answer, a web page instead of JSON) must only mean
@@ -124,7 +134,7 @@ object Lossless {
     // The first bytes of the file say what it is; a FLAC's STREAMINFO says how fine.
     private fun open(base: String, id: String, seconds: Int): Found {
         val url = "$base/track/$id"
-        val conn = connect(url, mapOf("Range" to "bytes=0-41"))
+        val conn = connect(url, mapOf("Range" to "bytes=0-41"), FILE_READ_MS)
         try {
             val code = conn.responseCode
             if (code != 200 && code != 206) throw IOException("HTTP $code")
@@ -167,7 +177,7 @@ object Lossless {
     }
 
     private fun get(url: String): String {
-        val conn = connect(url, mapOf("Accept" to "application/json"))
+        val conn = connect(url, mapOf("Accept" to "application/json"), SEARCH_READ_MS)
         try {
             val code = conn.responseCode
             if (code !in 200..299) throw IOException("HTTP $code")
@@ -177,11 +187,11 @@ object Lossless {
         }
     }
 
-    // The song waits on these, so a slow server gives up its turn quickly.
-    private fun connect(url: String, headers: Map<String, String>): HttpURLConnection =
+    // The song waits on these: see CONNECT_MS.
+    private fun connect(url: String, headers: Map<String, String>, readMs: Int): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 3_000
-            readTimeout = 4_000
+            connectTimeout = CONNECT_MS
+            readTimeout = readMs
             useCaches = false
             setRequestProperty("User-Agent", UA)
             headers.forEach { (name, value) -> setRequestProperty(name, value) }

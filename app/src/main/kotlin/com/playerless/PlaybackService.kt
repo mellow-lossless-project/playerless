@@ -39,6 +39,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 
 private const val LISTENED_MS = 30_000L
 const val EXTRA_URL = "url"
@@ -58,6 +59,7 @@ class PlaybackService : MediaSessionService() {
     private val handler = Handler(Looper.getMainLooper())
     private var session: MediaSession? = null
     private val origins = ConcurrentHashMap<String, String>()
+    private val ahead = Executors.newSingleThreadExecutor()
 
     @OptIn(UnstableApi::class)
     override fun onCreate() {
@@ -170,9 +172,16 @@ class PlaybackService : MediaSessionService() {
             override fun onPlayerError(error: PlaybackException) {
                 val id = player.currentMediaItem?.mediaId
                 if (id != null && id.startsWith(YouTube.PREFIX)) YtStream.forget(id.removePrefix(YouTube.PREFIX))
-                // A lossless file that broke off: the server rests a while, the next try uses the song's own source.
+                // A lossless file that broke off: the same song again, from its own source. Its first
+                // open chooses again, and the lossless server is out of the running for it.
                 val origin = id?.let { origins[it] }
-                if (origin != null && origin != FROM_DISK && origin != FROM_STREAM) Lossless.failed()
+                val info = id?.let { queued[it] }
+                if (origin != null && origin != FROM_DISK && origin != FROM_STREAM && info != null) {
+                    Lossless.failed(info.title, info.artist)
+                    LoadLog.add(id, "Il file lossless si è interrotto: riparto dalla sorgente del brano")
+                    player.prepare()
+                    return
+                }
                 LoadLog.fail(error.cause?.message ?: error.errorCodeName)
                 if (player.hasNextMediaItem()) {
                     player.seekToNextMediaItem()
@@ -182,6 +191,7 @@ class PlaybackService : MediaSessionService() {
         })
         player.addListener(PlayCounter(player))
         player.addListener(LoadWatcher())
+        player.addListener(LosslessAhead(player))
 
         val openApp = PendingIntent.getActivity(
             this,
@@ -224,6 +234,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         Downloads.playing = null
+        ahead.shutdownNow()
         handler.removeCallbacksAndMessages(null)
         session?.run {
             player.release()
@@ -259,6 +270,20 @@ class PlaybackService : MediaSessionService() {
             image = item.requestMetadata.extras?.getString(EXTRA_IMAGE) ?: item.mediaMetadata.artworkUri?.toString().orEmpty(),
             url = item.requestMetadata.extras?.getString(EXTRA_URL) ?: item.requestMetadata.mediaUri.toString(),
         )
+    }
+
+    // With the lossless quality on, the next song is looked up on the lossless server while this one
+    // plays: skipping to it then starts without the lookup's second or two. Downloads need none.
+    private inner class LosslessAhead(private val player: Player) : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (!Settings.lossless) return
+            val index = player.nextMediaItemIndex
+            if (index == C.INDEX_UNSET) return
+            val next = player.getMediaItemAt(index).mediaId
+            val info = queued[next] ?: return
+            if (Downloads.localFile(next) != null) return
+            ahead.execute { runCatching { Lossless.resolve(info.title, info.artist, info.seconds) {} } }
+        }
     }
 
     // Tells the on-screen log when a song is loading: from when it should play until it first does.

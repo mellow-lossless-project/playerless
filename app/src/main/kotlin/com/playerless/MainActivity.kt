@@ -3,6 +3,7 @@ package com.playerless
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ComponentName
+import android.content.Intent
 import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.Uri
@@ -404,17 +405,15 @@ class MainActivity : Activity() {
     }
 
     // Downloads already on the phone play from the phone, so lossless reaches them only by swapping
-    // their files: FLAC where the server has it. Big files, hence the warning first.
+    // their files: FLAC where the server has it. Big files, hence the warning first. The swap runs in
+    // UpgradeService, which keeps going with the app closed and counts the songs in a notification.
     private fun confirmUpgrade() {
         if (Downloads.upgrade != null) return
-        val app = applicationContext
         AlertDialog.Builder(this)
             .setTitle(R.string.lossless_upgrade)
             .setMessage(getString(R.string.lossless_upgrade_confirm, Downloads.list().size))
             .setPositiveButton(R.string.lossless_upgrade_start) { _, _ ->
-                Downloads.upgradeToLossless { flac, kept ->
-                    Toast.makeText(app, app.getString(R.string.lossless_upgrade_done, flac, kept), Toast.LENGTH_LONG).show()
-                }
+                startForegroundService(Intent(this, UpgradeService::class.java))
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()

@@ -95,9 +95,10 @@ object Downloads {
 
     // Main thread. Swaps each downloaded song that isn't FLAC yet for the lossless server's FLAC,
     // where the server has one; the others stay as they are. One at a time, behind any download.
-    // done gets how many are FLAC now and how many stayed as they were.
-    fun upgradeToLossless(done: (flac: Int, kept: Int) -> Unit) {
-        if (upgrade != null) return
+    // progress gets songs done and in all; done gets how many are FLAC now and how many stayed as
+    // they were. Run by UpgradeService, which keeps the app alive meanwhile. False if one is running.
+    fun upgradeToLossless(progress: (done: Int, total: Int) -> Unit, done: (flac: Int, kept: Int) -> Unit): Boolean {
+        if (upgrade != null) return false
         val songs = list()
         upgrade = 0 to songs.size
         onChanged?.invoke()
@@ -106,10 +107,11 @@ object Downloads {
             var kept = 0
             fun step(song: Song) {
                 if (runCatching { toFlac(song) }.getOrDefault(false)) flac++ else kept++
-                val progress = flac + kept
+                val count = flac + kept
                 main.post {
-                    upgrade = progress to songs.size
+                    upgrade = count to songs.size
                     onChanged?.invoke()
+                    progress(count, songs.size)
                 }
             }
             // A song playing is left for last, in case the player has moved on by then.
@@ -122,6 +124,7 @@ object Downloads {
                 done(flac, kept)
             }
         }
+        return true
     }
 
     // True when the song's file is FLAC now: it already was, or the lossless server had it.

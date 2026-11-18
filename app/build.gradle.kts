@@ -10,8 +10,8 @@ android {
         applicationId = "com.playerless"
         minSdk = 26
         targetSdk = 29
-        versionCode = 13
-        versionName = "1.3"
+        versionCode = 14
+        versionName = "1.4"
     }
 
     // Media3 ships strings for ~80 locales; keep only the ones we use.

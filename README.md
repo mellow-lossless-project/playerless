@@ -14,7 +14,7 @@ Il nome è un gioco di parole: suona come "lossless". L'audio è AAC fino a 320 
 - **Playlist da Spotify** importate dal PC con un bot (vedi sotto)
 - **Equalizzatore** a curva da 20 Hz a 20 kHz: fino a 12 punti da trascinare, ognuno con la sua larghezza, nel colore dell'app. Ogni punto è un filtro a campana applicato dal player; quando la curva sale, il volume generale scende di altrettanto, così i picchi non distorcono
 - **Qualità streaming** in ordine: Lossless FLAC (1411 kbps), JioSaavn (320, 160 o 96 kbps). Con Lossless compare anche "Server lossless", per usare un server diverso da `tracks.monochrome.st`. A novembre 2026 quel server manda FLAC per alcuni brani (anche 24 bit / 96 kHz) e AAC a ~320 kbps per altri: l'app glielo chiede per ogni brano, suona il FLAC quando c'è e altrimenti la sorgente migliore. Nel player, tra i due tempi, c'è scritto cosa sta suonando davvero (per esempio "Lossless · FLAC 24 bit · 96,0 kHz" o "JioSaavn · AAC 320 kbps")
-- **Download offline** scegliendo la qualità per ogni brano: Lossless dal server lossless (se non ha il brano, scarica il meglio della sorgente normale), oppure 320, 160 o 96 kbps da JioSaavn, 128 da YouTube. Nei Scaricati compaiono i kbps reali del file. Anche i brani scaricati si riproducono tutti, in ordine o casuale. Un brano scaricato suona sempre dal telefono: per averlo in lossless, Impostazioni → "Riscarica in lossless" sostituisce i brani scaricati con il FLAC dove il server lo ha (meglio col Wi-Fi: 25–40 MB a brano)
+- **Download offline** scegliendo la qualità per ogni brano: Lossless dal server lossless (se non ha il brano, scarica il meglio della sorgente normale), oppure 320, 160 o 96 kbps da JioSaavn, 128 da YouTube. Nei Scaricati compaiono i kbps reali del file. Anche i brani scaricati si riproducono tutti, in ordine o casuale. Un brano scaricato suona sempre dal telefono: per averlo in lossless, Impostazioni → "Riscarica in lossless" sostituisce i brani scaricati con il FLAC dove il server lo ha (meglio col Wi-Fi: 25–40 MB a brano). Va avanti anche a schermo spento o con l'app chiusa, con una notifica che conta i brani
 - **Playlist** locali, con riproduzione in ordine o casuale
 - **Ascolti più spesso** in home
 - **Player a schermo intero** con artista, tempo trascorso e durata, avanzamento e volume
@@ -26,7 +26,7 @@ L'interfaccia è solo in italiano.
 
 ## Scaricare
 
-**[Scarica Playerless.apk](https://github.com/mellow-lossless-project/playerless/raw/main/Playerless.apk)** (versione 1.3)
+**[Scarica Playerless.apk](https://github.com/mellow-lossless-project/playerless/raw/main/Playerless.apk)** (versione 1.4)
 
 Ogni versione è anche nelle [Release](https://github.com/mellow-lossless-project/playerless/releases), con l'APK allegato e le novità. Si installa sopra la precedente: playlist e download restano.
 
