@@ -20,6 +20,8 @@ const LOG_DELAY_MS = 300;
 const LOG_TICK_MS = 100;
 const LOG_LINES = 8;
 const NON_WORD = /[^\p{L}\p{N}]+/gu;
+const MARKS = /\p{M}+/gu;
+const APOSTROPHES = /['’‘`´]/g;
 
 // The phone's vector icons.
 const ICONS = {
@@ -125,13 +127,10 @@ const Downloads = {
   audioUrl(song) { return '/music/' + safeName(song.id) + '.m4a'; },
   coverUrl(song) { return '/music/' + safeName(song.id) + '.jpg'; },
 
-  // Every word of the query has to appear in the title or the artist.
+  // Every word of the query has to appear in the title or the artist, matched as the online search does.
   search(query) {
-    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-    return Store.downloads.filter((song) => {
-      const text = `${song.title} ${song.artist}`.toLowerCase();
-      return words.every((word) => text.includes(word));
-    });
+    const words = queryWords(query);
+    return Store.downloads.filter((song) => matchesAll(words, song));
   },
 
   // A null bitrate keeps the URL as it is, for streams that don't name theirs.
@@ -939,15 +938,16 @@ async function runSearch(query) {
   if (found.some((s) => YouTube.isYouTube(s))) YtStream.warmUp();
 }
 
-// JioSaavn before YouTube: it starts at once and goes up to 320 kbps. Above both comes whatever
-// has every word of the query in its title or artist, which JioSaavn often doesn't for artists it
-// lacks. A YouTube song JioSaavn also has is left out.
+// Best match first, as on the phone: the more of the query a song has in its title and artist, the
+// higher. For artists JioSaavn lacks it fills its answer with other songs of the same name; the song
+// itself then comes from YouTube and must still come first. On a tie JioSaavn wins: it starts at
+// once and goes up to 320 kbps. A YouTube song JioSaavn also has is left out.
 function merge(query, saavn, youtube) {
-  const words = normalize(query).split(' ').filter(Boolean);
+  const words = queryWords(query);
   const onSaavn = new Set(saavn.map(matchKey));
   return saavn.concat(youtube.filter((s) => !onSaavn.has(matchKey(s))))
-    .map((song, i) => ({ song, i, rank: words.every((w) => normalize(`${song.title} ${song.artist}`).includes(w)) ? 0 : 1 }))
-    .sort((a, b) => a.rank - b.rank || a.i - b.i)
+    .map((song, i) => ({ song, i, score: matchScore(words, song) }))
+    .sort((a, b) => b.score - a.score || a.i - b.i)
     .map((x) => x.song);
 }
 
@@ -955,8 +955,28 @@ function matchKey(song) {
   return normalize(song.title) + '|' + normalize(song.artist.split(',')[0]);
 }
 
+// Lowercase, accents and apostrophes dropped, anything else that isn't a letter or digit one space:
+// "Shotta's" is "shottas", "Fousheé" is "foushee", as people and catalogs write them.
 function normalize(text) {
-  return text.toLowerCase().replace(NON_WORD, ' ').trim();
+  return text.toLowerCase().normalize('NFD').replace(MARKS, '').replace(APOSTROPHES, '').replace(NON_WORD, ' ').trim();
+}
+
+function queryWords(query) {
+  return normalize(query).split(' ').filter(Boolean);
+}
+
+// The letters of the query's words a song has in its title or artist. Spaces don't count, so
+// "season25" finds "Season 25".
+function matchScore(words, song) {
+  const text = normalize(`${song.title} ${song.artist}`);
+  const joined = text.replace(/ /g, '');
+  return words.reduce((sum, w) => sum + (text.includes(w) || joined.includes(w) ? w.length : 0), 0);
+}
+
+function matchesAll(words, song) {
+  const text = normalize(`${song.title} ${song.artist}`);
+  const joined = text.replace(/ /g, '');
+  return words.every((w) => text.includes(w) || joined.includes(w));
 }
 
 // --- Importing from the phone -----------------------------------------------------------------
