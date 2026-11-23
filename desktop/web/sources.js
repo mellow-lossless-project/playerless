@@ -43,7 +43,9 @@ const Saavn = {
     // The stream links come DES-encrypted; Playerless.exe has DES, the page doesn't.
     const response = await fetch('/api/des', { method: 'POST', body: JSON.stringify(results.map((item) => item.more_info.encrypted_media_url)) });
     const links = await response.json();
-    return results.map((item, i) => Saavn.parse(item, links[i])).filter(Boolean);
+    // The explicit recording is nearly always there, but its clean edit often comes first.
+    const songs = results.map((item, i) => Saavn.parse(item, links[i])).filter(Boolean);
+    return oneEach(songs, (song) => Number((Saavn.SUFFIX.exec(song.url) || [])[1]) || 0);
   },
 
   parse(json, link) {
@@ -60,6 +62,7 @@ const Saavn = {
       image: String(json.image || '').replace(/http:\/\//g, 'https://'),
       url,
       seconds: parseInt(info.duration, 10) || 0,
+      explicit: String(json.explicit_content) === '1',
     };
   },
 };
@@ -130,7 +133,7 @@ const YouTube = {
         if (song) songs.push(song);
       }
     }
-    return songs;
+    return oneEach(songs);
   },
 
   // The answer to "how do I play this video", streams included.
@@ -190,6 +193,11 @@ const YouTube = {
       image: image.replace(YouTube.COVER_SIZE, '=w150-h150'),
       url: YouTube.PREFIX + videoId,
       seconds: YouTube.DURATION.test(last) ? last.split(':').reduce((total, part) => total * 60 + Number(part), 0) : 0,
+      // The "E" YouTube Music shows next to a title.
+      explicit: (item.badges || []).some((badge) => {
+        const icon = badge && badge.musicInlineBadgeRenderer && badge.musicInlineBadgeRenderer.icon;
+        return Boolean(icon) && icon.iconType === 'MUSIC_EXPLICIT_BADGE';
+      }),
     };
   },
 

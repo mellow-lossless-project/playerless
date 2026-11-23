@@ -40,7 +40,10 @@ object SaavnApi {
             .build().toString()
 
         val results = JSONObject(get(url)).optJSONArray("results") ?: return emptyList()
-        return (0 until results.length()).mapNotNull { parseSong(results.getJSONObject(it)) }
+        // Checked 2026-11-23: the explicit recording is nearly always there, but its clean edit often
+        // comes first ("Hotline Bling", "Shottas (Lala)"), and the cookie below doesn't change that.
+        val songs = (0 until results.length()).mapNotNull { parseSong(results.getJSONObject(it)) }
+        return Match.oneEach(songs) { kbpsOf(it.url) ?: 0 }
     }
 
     private fun get(url: String): String {
@@ -79,6 +82,7 @@ object SaavnApi {
             image = json.optString("image").replace("http://", "https://"),
             url = url,
             seconds = info.optString("duration").toIntOrNull() ?: 0,
+            explicit = json.optString("explicit_content") == "1",
         )
     }
 

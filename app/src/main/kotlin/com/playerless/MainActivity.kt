@@ -107,6 +107,7 @@ class MainActivity : Activity() {
         Covers.inks = skin.inks
         // The poster page's grain and grid, under everything that has no background of its own.
         if (Settings.look != Look.CLASSIC) window.setBackgroundDrawable(skin.page())
+        Lossless.init(this)
         Downloads.init(this)
         Downloads.onChanged = ::refreshList
         Playlists.init(this)
@@ -698,17 +699,19 @@ class MainActivity : Activity() {
     // Best match first: the more of the query a song has in its title and artist, the higher. For
     // artists JioSaavn lacks it fills its answer with other songs of the same name; the song itself
     // then comes from YouTube and must still come first. On a tie JioSaavn wins: it starts at once
-    // and goes up to 320 kbps. A YouTube song JioSaavn also has is left out.
+    // and goes up to 320 kbps. A YouTube song JioSaavn also has is left out, unless JioSaavn has only
+    // its clean edit: then the uncensored one from YouTube takes that place.
     private fun merge(query: String, saavn: List<Song>, youtube: List<Song>): List<Song> {
         val words = Match.words(query)
-        val onSaavn = saavn.mapTo(HashSet(), ::matchKey)
-        return (saavn + youtube.filterNot { matchKey(it) in onSaavn })
+        val uncensored = saavn.filter { it.explicit }.mapTo(HashSet(), Match::key)
+        youtube.filter { it.explicit }.mapTo(uncensored, Match::key)
+        val kept = saavn.filter { it.explicit || Match.key(it) !in uncensored }
+        val onSaavn = kept.mapTo(HashSet(), Match::key)
+        return (kept + youtube.filterNot { Match.key(it) in onSaavn })
             .map { it to Match.score(words, it) }
             .sortedByDescending { it.second }
             .map { it.first }
     }
-
-    private fun matchKey(song: Song) = Match.normalize(song.title) + "|" + Match.normalize(song.artist.substringBefore(','))
 
     // Shown only past a short wait, so songs that start at once never flash it.
     private fun renderLog() {

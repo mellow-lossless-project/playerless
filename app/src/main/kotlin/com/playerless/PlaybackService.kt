@@ -28,6 +28,7 @@ import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.extractor.flac.FlacExtractor
+import androidx.media3.extractor.mkv.MatroskaExtractor
 import androidx.media3.extractor.mp3.Mp3Extractor
 import androidx.media3.extractor.mp4.FragmentedMp4Extractor
 import androidx.media3.extractor.mp4.Mp4Extractor
@@ -42,6 +43,10 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
 private const val LISTENED_MS = 30_000L
+
+// How long a song waits for the lossless server before it starts from its own source. Most answers
+// come in 1-4 s; a slower one goes on behind the song, so the song is lossless the next time.
+private const val LOSSLESS_WAIT_MS = 6_000L
 const val EXTRA_URL = "url"
 const val EXTRA_IMAGE = "image"
 const val EXTRA_SECONDS = "seconds"
@@ -65,6 +70,7 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         Settings.init(this)
+        Lossless.init(this)
         Downloads.init(this)
         PlayStats.init(this)
         YouTube.init(this)
@@ -102,10 +108,8 @@ class PlaybackService : MediaSessionService() {
                 // Its label was set when the lossless server was chosen.
                 origin != FROM_DISK && origin != FROM_STREAM -> spec.withUri(Uri.parse(origin))
                 spec.uri.scheme == "yt" -> {
-                    // itag 140, AAC at 128 kbps: see YtStream.
-                    NowPlaying.set(id, "YouTube · AAC 128 kbps")
                     val log: (String) -> Unit = if (first) ({ LoadLog.add(id, it) }) else ({})
-                    val url = try {
+                    val link = try {
                         YtStream.resolve(spec.uri.schemeSpecificPart, log)
                     } catch (e: IOException) {
                         throw e
@@ -113,11 +117,12 @@ class PlaybackService : MediaSessionService() {
                         // YouTube answering something unexpected: not worth a retry either.
                         throw YtException(e.message ?: e.javaClass.simpleName)
                     }
+                    NowPlaying.set(id, "YouTube · ${link.codec} ${link.kbps} kbps")
                     log("Link pronto, carico l'audio")
                     // From the start of a file the player asks for no range, and YouTube serves a
                     // request without one at about twice the song's bitrate: enough to play, slow
                     // to buffer. A range of any kind gets full speed.
-                    spec.withUri(Uri.parse(url)).withAdditionalHeaders(mapOf("Range" to "bytes=${spec.position}-"))
+                    spec.withUri(Uri.parse(link.url)).withAdditionalHeaders(mapOf("Range" to "bytes=${spec.position}-"))
                 }
                 else -> {
                     if (first) LoadLog.add(id, "Carico l'audio da JioSaavn")
@@ -130,20 +135,23 @@ class PlaybackService : MediaSessionService() {
 
         // Audio only: the default factories would also pull in every video, text and metadata
         // renderer and container, 200 KB of the APK. Saavn serves MP4; its URLs also allow AAC and
-        // MP3. YouTube serves fragmented MP4.
+        // MP3. YouTube serves Opus in WebM, or AAC in fragmented MP4.
         // The equalizer sits in the sink's chain, after decoding, before the speaker.
         val renderers = RenderersFactory { handler, _, audio, _, _ ->
             val sink = DefaultAudioSink.Builder(this).setAudioProcessors(arrayOf(EqProcessor())).build()
             arrayOf(MediaCodecAudioRenderer(this, MediaCodecSelector.DEFAULT, handler, audio, sink))
         }
-        // FLAC for the lossless quality, decoded by the platform's own decoder.
+        // FLAC for the lossless quality and Opus for YouTube, both decoded by the platform's own
+        // decoders. Every file is told by its first bytes, not its name (downloads are all .m4a):
+        // the formats that open with a signature go first, the ones that need a scan last.
         val extractors = ExtractorsFactory {
             arrayOf(
                 Mp4Extractor(SubtitleParser.Factory.UNSUPPORTED),
                 FragmentedMp4Extractor(SubtitleParser.Factory.UNSUPPORTED),
+                MatroskaExtractor(SubtitleParser.Factory.UNSUPPORTED),
+                FlacExtractor(),
                 AdtsExtractor(),
                 Mp3Extractor(),
-                FlacExtractor(),
             )
         }
 
@@ -203,6 +211,7 @@ class PlaybackService : MediaSessionService() {
         // The first song would otherwise wait for the list of codecs on the playback thread.
         Thread {
             MediaCodecUtil.warmDecoderInfoCache(MimeTypes.AUDIO_AAC, false, false)
+            MediaCodecUtil.warmDecoderInfoCache(MimeTypes.AUDIO_OPUS, false, false)
             if (Settings.lossless) MediaCodecUtil.warmDecoderInfoCache(MimeTypes.AUDIO_FLAC, false, false)
         }.start()
 
@@ -213,14 +222,14 @@ class PlaybackService : MediaSessionService() {
     }
 
     // With the lossless quality on: FLAC from the lossless server beats every source. What the server
-    // sends instead for some songs (Monochrome's own: AAC ~320 kbps) still beats YouTube's 128, not
+    // sends instead for some songs (Monochrome's own: AAC ~320 kbps) still beats YouTube's Opus, not
     // JioSaavn's 320. Every song is asked about, since the server has FLAC for some and not others.
     // Null: the song's own source.
     private fun losslessUrl(id: String, youtube: Boolean): String? {
         if (!Settings.lossless) return null
         val info = queued[id] ?: return null
         val log: (String) -> Unit = { LoadLog.add(id, it) }
-        val found = Lossless.resolve(info.title, info.artist, info.seconds, log) ?: return null
+        val found = Lossless.resolve(info.title, info.artist, info.seconds, LOSSLESS_WAIT_MS, log) ?: return null
         if (!found.flac && !youtube) {
             log("${found.label}, non FLAC: resto su JioSaavn 320 kbps")
             return null
@@ -273,7 +282,8 @@ class PlaybackService : MediaSessionService() {
     }
 
     // With the lossless quality on, the next song is looked up on the lossless server while this one
-    // plays: skipping to it then starts without the lookup's second or two. Downloads need none.
+    // plays, with all the time the server needs: skipping to it then starts without the wait, and in
+    // FLAC even when the server is slow. Downloads need none.
     private inner class LosslessAhead(private val player: Player) : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             if (!Settings.lossless) return
@@ -282,7 +292,7 @@ class PlaybackService : MediaSessionService() {
             val next = player.getMediaItemAt(index).mediaId
             val info = queued[next] ?: return
             if (Downloads.localFile(next) != null) return
-            ahead.execute { runCatching { Lossless.resolve(info.title, info.artist, info.seconds) {} } }
+            ahead.execute { runCatching { Lossless.prefetch(info.title, info.artist, info.seconds) } }
         }
     }
 

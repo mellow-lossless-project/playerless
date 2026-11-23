@@ -23,9 +23,11 @@ enum class Look(val label: Int, val theme: Int) {
 }
 
 object Settings {
-    // Best first: lossless, then JioSaavn's renditions. YouTube is always 128 kbps.
+    // Best first: lossless, then JioSaavn's renditions. YouTube always streams its best, Opus at
+    // about 130 kbps. Lossless unless chosen otherwise: a song never waits on it more than a few
+    // seconds (see PlaybackService).
     val QUALITIES = listOf(Lossless.KBPS, 320, 160, 96)
-    const val DEFAULT_QUALITY = 320
+    const val DEFAULT_QUALITY = Lossless.KBPS
 
     private lateinit var prefs: SharedPreferences
 

@@ -620,7 +620,7 @@ namespace Playerless
                 response.AddHeader("Content-Range", "bytes " + start + "-" + end + "/" + length);
             }
             response.AddHeader("Accept-Ranges", "bytes");
-            response.ContentType = name.EndsWith(".jpg") ? "image/jpeg" : "audio/mp4";
+            response.ContentType = name.EndsWith(".jpg") ? "image/jpeg" : AudioType(path);
             if (name.EndsWith(".jpg")) response.AddHeader("Cache-Control", "max-age=86400");
             response.ContentLength64 = end - start + 1;
             if (request.HttpMethod == "HEAD") return;
@@ -637,6 +637,18 @@ namespace Playerless
                     left -= read;
                 }
             }
+        }
+
+        // Every song file is named .m4a, whatever it holds: the phone's lossless downloads are FLAC and
+        // its YouTube ones Opus in WebM. Firefox goes by the type it's told, so the first bytes say it.
+        static string AudioType(string path)
+        {
+            var head = new byte[4];
+            int read;
+            using (var file = File.OpenRead(path)) read = file.Read(head, 0, 4);
+            if (read == 4 && head[0] == 'f' && head[1] == 'L' && head[2] == 'a' && head[3] == 'C') return "audio/flac";
+            if (read == 4 && head[0] == 0x1A && head[1] == 0x45 && head[2] == 0xDF && head[3] == 0xA3) return "audio/webm";
+            return "audio/mp4";
         }
 
         // --- The phone, over USB ---------------------------------------------------------------

@@ -33,7 +33,7 @@
     <string name="quality_lossless">Lossless FLAC (%1$d kbps)</string>
     <string name="quality_saavn">JioSaavn (%1$d kbps)</string>
     <string name="quality_saavn_stream">JioSaavn</string>
-    <string name="quality_youtube">YouTube (128 kbps)</string>
+    <string name="quality_youtube">YouTube (Opus, circa 130 kbps)</string>
     <string name="lossless_server">Server lossless</string>
     <string name="lossless_server_default">Predefinito</string>
     <string name="lossless_upgrade">Riscarica in lossless</string>

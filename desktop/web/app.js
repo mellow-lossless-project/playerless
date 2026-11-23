@@ -22,6 +22,8 @@ const LOG_LINES = 8;
 const NON_WORD = /[^\p{L}\p{N}]+/gu;
 const MARKS = /\p{M}+/gu;
 const APOSTROPHES = /['’‘`´]/g;
+// A guest in a title, "(con JUL)" or "(feat. Drake)": see matchKey.
+const FEATURING = /\s*[(\[](?:con|feat\.?|ft\.?|with|featuring)\s[^)\]]*[)\]]/gi;
 
 // The phone's vector icons.
 const ICONS = {
@@ -941,18 +943,44 @@ async function runSearch(query) {
 // Best match first, as on the phone: the more of the query a song has in its title and artist, the
 // higher. For artists JioSaavn lacks it fills its answer with other songs of the same name; the song
 // itself then comes from YouTube and must still come first. On a tie JioSaavn wins: it starts at
-// once and goes up to 320 kbps. A YouTube song JioSaavn also has is left out.
+// once and goes up to 320 kbps. A YouTube song JioSaavn also has is left out, unless JioSaavn has only
+// its clean edit: then the uncensored one from YouTube takes that place.
 function merge(query, saavn, youtube) {
   const words = queryWords(query);
-  const onSaavn = new Set(saavn.map(matchKey));
-  return saavn.concat(youtube.filter((s) => !onSaavn.has(matchKey(s))))
+  const uncensored = new Set(saavn.concat(youtube).filter((s) => s.explicit).map(matchKey));
+  const kept = saavn.filter((s) => s.explicit || !uncensored.has(matchKey(s)));
+  const onSaavn = new Set(kept.map(matchKey));
+  return kept.concat(youtube.filter((s) => !onSaavn.has(matchKey(s))))
     .map((song, i) => ({ song, i, score: matchScore(words, song) }))
     .sort((a, b) => b.score - a.score || a.i - b.i)
     .map((x) => x.song);
 }
 
+// Guests don't count, since only some catalogs put them in the title: YouTube's "Moulaga (con JUL)"
+// is JioSaavn's "Moulaga".
 function matchKey(song) {
-  return normalize(song.title) + '|' + normalize(song.artist.split(',')[0]);
+  return normalize(song.title.replace(FEATURING, '')) + '|' + normalize(song.artist.split(',')[0]);
+}
+
+// One entry per recording, as on the phone. A catalog lists a song again on every compilation, and
+// next to it its clean edit under the same title, often first: same title, first artist and length
+// (within 2 s) count as one, in the place of the first. The uncensored one wins, then the bitrate.
+function oneEach(songs, kbps = () => 0) {
+  const kept = [];
+  const keys = [];
+  const rank = (song) => (song.explicit ? 10000 : 0) + kbps(song);
+  const sameLength = (a, b) => (a.seconds > 0 && b.seconds > 0 ? Math.abs(a.seconds - b.seconds) <= 2 : a.seconds === b.seconds);
+  for (const song of songs) {
+    const key = matchKey(song);
+    const twin = kept.findIndex((other, i) => keys[i] === key && sameLength(other, song));
+    if (twin < 0) {
+      kept.push(song);
+      keys.push(key);
+    } else if (rank(song) > rank(kept[twin])) {
+      kept[twin] = song;
+    }
+  }
+  return kept;
 }
 
 // Lowercase, accents and apostrophes dropped, anything else that isn't a letter or digit one space:

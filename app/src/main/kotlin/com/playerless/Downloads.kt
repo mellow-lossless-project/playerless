@@ -15,10 +15,8 @@ import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
-// YouTube's AAC stream, itag 140.
-private const val YOUTUBE_KBPS = 128
-
-// Offline songs live in filesDir/music, listed newest first in index.json.
+// Offline songs live in filesDir/music, listed newest first in index.json. Every file is named .m4a,
+// whatever it holds (AAC in MP4, FLAC, Opus in WebM): the player tells them by their first bytes.
 object Downloads {
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -182,18 +180,22 @@ object Downloads {
         if (lossless) fetchLossless(song)?.let { return it }
 
         // A YouTube song has one rendition, the one it streams, so the stream may move to the file.
-        val youtube = YouTube.isYouTube(song)
+        val youtube = if (YouTube.isYouTube(song)) YtStream.resolve(song.url.removePrefix(YouTube.PREFIX)) {} else null
         val quality = kbps?.takeIf { it != Lossless.KBPS }
         val url = when {
-            youtube -> YtStream.resolve(song.url.removePrefix(YouTube.PREFIX)) {}
+            youtube != null -> youtube.url
             quality != null -> SaavnApi.withQuality(song.url, quality)
             else -> song.url
         }
-        save(url, audioFile(song.id), ranged = youtube)
-        sources[song.id] = if (youtube) song.url else url
-        val saved = if (youtube) YOUTUBE_KBPS else quality ?: SaavnApi.kbpsOf(url)
+        save(url, audioFile(song.id), ranged = youtube != null)
+        sources[song.id] = if (youtube != null) song.url else url
+        val saved = youtube?.kbps ?: quality ?: SaavnApi.kbpsOf(url)
         remember(song.copy(kbps = saved))
-        val what = (if (youtube) "YouTube" else "JioSaavn") + (saved?.let { " $it kbps" } ?: "")
+        val what = when {
+            youtube != null -> "YouTube ${youtube.codec} ${youtube.kbps} kbps"
+            saved != null -> "JioSaavn $saved kbps"
+            else -> "JioSaavn"
+        }
         return if (lossless) "$what: non è sul server lossless" else what
     }
 

@@ -21,6 +21,7 @@ class UpgradeService : Service() {
     override fun onCreate() {
         super.onCreate()
         Settings.init(this)
+        Lossless.init(this)
         Downloads.init(this)
         notifications = getSystemService(NotificationManager::class.java)
         val channel = NotificationChannel(CHANNEL, getString(R.string.downloads), NotificationManager.IMPORTANCE_LOW)
