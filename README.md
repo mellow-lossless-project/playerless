@@ -37,7 +37,7 @@ Serve Android 8 o successivo. Al primo avvio dell'installazione il telefono chie
 
 ## Perché è così leggera
 
-L'APK pesa circa 0,76 MB. Niente Compose, Hilt, Room o librerie per le immagini: solo Kotlin, View XML, Media3 per la riproduzione e RecyclerView per le liste.
+L'APK pesa circa 0,77 MB. Niente Compose, Hilt, Room o librerie per le immagini: solo Kotlin, View XML, Media3 per la riproduzione e RecyclerView per le liste.
 
 Per YouTube niente NewPipe né altri motori JavaScript: il JavaScript di YouTube gira nella WebView già presente nel telefono, nascosta. Il solutore di yt-dlp decifra i link e BotGuard, lo script anti-bot di Google, genera il gettone che YouTube chiede per servire un brano intero.
 
