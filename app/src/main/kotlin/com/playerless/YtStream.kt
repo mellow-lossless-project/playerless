@@ -15,12 +15,16 @@ import java.util.concurrent.Executors
 // its last byte downloads. Two ways in: the VR app's client, instant when YouTube lets it through;
 // otherwise the web client, whose links need unscrambling and a BotGuard token.
 object YtStream {
+    // The best audio YouTube gives without Premium: Opus in WebM at about 130-160 kbps, the full
+    // band to 20 kHz. AAC in MP4 (128 kbps, cut at 16 kHz) only when a video lacks it.
+    private const val OPUS = 251
     private const val AAC = 140
     private const val DEFAULT_EXPIRY_S = 6 * 3600L
     private const val EXPIRY_MARGIN_MS = 30 * 60_000L
     private const val VR_RETRY_MS = 24 * 3600_000L
 
-    private class Link(val url: String, val expires: Long)
+    // codec and kbps say what the stream is, for the player's label and the downloads list.
+    class Link(val url: String, val expires: Long, val codec: String, val kbps: Int)
 
     private val links = ConcurrentHashMap<String, Link>()
     private val background = Executors.newCachedThreadPool()
@@ -38,13 +42,13 @@ object YtStream {
         set(value) = prefs.edit().putLong("vr_refused_until", if (value) System.currentTimeMillis() + VR_RETRY_MS else 0).apply()
 
     // Blocking: call off the main thread. log gets each step, for the on-screen log.
-    fun resolve(videoId: String, log: (String) -> Unit): String {
-        links[videoId]?.takeIf { it.expires > System.currentTimeMillis() }?.let { return it.url }
+    fun resolve(videoId: String, log: (String) -> Unit): Link {
+        links[videoId]?.takeIf { it.expires > System.currentTimeMillis() }?.let { return it }
         log("Chiedo il brano a YouTube")
         val visitor = YouTube.visitorData()
         val link = (if (vrRefused) null else fromVr(videoId, visitor, log)) ?: fromWeb(videoId, visitor, log, firstTry = true)
         links[videoId] = link
-        return link.url
+        return link
     }
 
     // A link that failed while playing shouldn't be handed out again.
@@ -73,7 +77,7 @@ object YtStream {
         val url = format?.optString("url").orEmpty()
         if (url.isNotEmpty()) {
             log("Verifico il link")
-            if (works(url, format!!)) return Link(url, expiry(response))
+            if (works(url, format!!)) return link(url, format, response)
         }
         vrRefused = true
         log("Client VR bloccato, uso il web")
@@ -89,7 +93,7 @@ object YtStream {
             val reason = response.optJSONObject("playabilityStatus")?.optString("reason").orEmpty()
             throw YtException(reason.ifEmpty { "YouTube non dà questo brano" })
         }
-        val format = audioFormat(response) ?: throw YtException("Nessun audio AAC per questo brano")
+        val format = audioFormat(response) ?: throw YtException("Nessun audio per questo brano")
 
         log("Decifro il link")
         val cipher = query(format.optString("signatureCipher"))
@@ -111,7 +115,7 @@ object YtStream {
         }
 
         log("Verifico il link")
-        if (works(url, format)) return Link(url, expiry(response))
+        if (works(url, format)) return link(url, format, response)
         if (!firstTry) throw YtException("YouTube rifiuta il link")
         log("Link rifiutato, riprovo")
         PoToken.forget()
@@ -120,12 +124,21 @@ object YtStream {
 
     private fun status(response: JSONObject) = response.optJSONObject("playabilityStatus")?.optString("status")
 
-    // AAC in MP4, what the player and the downloads already handle.
+    // Opus, else AAC, else the richest audio there is. Never a "DRC" copy, whose loudness is squeezed.
     private fun audioFormat(response: JSONObject): JSONObject? {
         val formats = response.optJSONObject("streamingData")?.optJSONArray("adaptiveFormats") ?: return null
         val audio = (0 until formats.length()).mapNotNull { formats.optJSONObject(it) }
-            .filter { it.optString("mimeType").startsWith("audio/mp4") }
-        return audio.find { it.optInt("itag") == AAC } ?: audio.firstOrNull()
+            .filter { it.optString("mimeType").let { type -> type.startsWith("audio/webm") || type.startsWith("audio/mp4") } }
+            .filterNot { it.optBoolean("isDrc") }
+        return audio.find { it.optInt("itag") == OPUS } ?: audio.find { it.optInt("itag") == AAC }
+            ?: audio.maxByOrNull { it.optInt("bitrate") }
+    }
+
+    // averageBitrate is the file's; bitrate, its peak, only stands in when that's missing.
+    private fun link(url: String, format: JSONObject, response: JSONObject): Link {
+        val codec = if ("opus" in format.optString("mimeType")) "Opus" else "AAC"
+        val bps = format.optInt("averageBitrate").takeIf { it > 0 } ?: format.optInt("bitrate")
+        return Link(url, expiry(response), codec, (bps + 500) / 1000)
     }
 
     private fun works(url: String, format: JSONObject): Boolean {

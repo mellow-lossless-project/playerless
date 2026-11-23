@@ -82,7 +82,7 @@ object YouTube {
                 items.optJSONObject(j)?.optJSONObject("musicResponsiveListItemRenderer")?.let(::parseSong)?.let(songs::add)
             }
         }
-        return songs
+        return Match.oneEach(songs)
     }
 
     // Blocking. The answer to "how do I play this video", streams included.
@@ -153,7 +153,14 @@ object YouTube {
             image = image.replace(COVER_SIZE, "=w150-h150"),
             url = PREFIX + videoId,
             seconds = runs.lastOrNull()?.optString("text")?.let(::seconds) ?: 0,
+            explicit = isExplicit(item.optJSONArray("badges")),
         )
+    }
+
+    // The "E" YouTube Music shows next to a title.
+    private fun isExplicit(badges: JSONArray?): Boolean = (0 until (badges?.length() ?: 0)).any {
+        badges!!.optJSONObject(it)?.optJSONObject("musicInlineBadgeRenderer")?.optJSONObject("icon")
+            ?.optString("iconType") == "MUSIC_EXPLICIT_BADGE"
     }
 
     // "3:20" or "1:02:03", the last thing in the info line.

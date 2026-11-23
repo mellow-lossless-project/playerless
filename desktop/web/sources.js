@@ -43,7 +43,9 @@ const Saavn = {
     // The stream links come DES-encrypted; Playerless.exe has DES, the page doesn't.
     const response = await fetch('/api/des', { method: 'POST', body: JSON.stringify(results.map((item) => item.more_info.encrypted_media_url)) });
     const links = await response.json();
-    return results.map((item, i) => Saavn.parse(item, links[i])).filter(Boolean);
+    // The explicit recording is nearly always there, but its clean edit often comes first.
+    const songs = results.map((item, i) => Saavn.parse(item, links[i])).filter(Boolean);
+    return oneEach(songs, (song) => Number((Saavn.SUFFIX.exec(song.url) || [])[1]) || 0);
   },
 
   parse(json, link) {
@@ -60,6 +62,7 @@ const Saavn = {
       image: String(json.image || '').replace(/http:\/\//g, 'https://'),
       url,
       seconds: parseInt(info.duration, 10) || 0,
+      explicit: String(json.explicit_content) === '1',
     };
   },
 };
@@ -130,7 +133,7 @@ const YouTube = {
         if (song) songs.push(song);
       }
     }
-    return songs;
+    return oneEach(songs);
   },
 
   // The answer to "how do I play this video", streams included.
@@ -190,6 +193,11 @@ const YouTube = {
       image: image.replace(YouTube.COVER_SIZE, '=w150-h150'),
       url: YouTube.PREFIX + videoId,
       seconds: YouTube.DURATION.test(last) ? last.split(':').reduce((total, part) => total * 60 + Number(part), 0) : 0,
+      // The "E" YouTube Music shows next to a title.
+      explicit: (item.badges || []).some((badge) => {
+        const icon = badge && badge.musicInlineBadgeRenderer && badge.musicInlineBadgeRenderer.icon;
+        return Boolean(icon) && icon.iconType === 'MUSIC_EXPLICIT_BADGE';
+      }),
     };
   },
 
@@ -412,6 +420,9 @@ const PoToken = {
 // its last byte downloads. Two ways in: the VR app's client, instant when YouTube lets it through;
 // otherwise the web client, whose links need unscrambling and a BotGuard token.
 const YtStream = {
+  // The best audio YouTube gives without Premium: Opus in WebM at about 130-160 kbps, the full band
+  // to 20 kHz. AAC in MP4 (128 kbps, cut at 16 kHz) only when a video lacks it.
+  OPUS: 251,
   AAC: 140,
   DEFAULT_EXPIRY_S: 6 * 3600,
   EXPIRY_MARGIN_MS: 30 * 60e3,
@@ -429,11 +440,11 @@ const YtStream = {
     Store.save('youtube');
   },
 
-  // log gets each step, for the on-screen log. A song asked for twice at once, to play and to get
-  // ready as the next one, is resolved once.
+  // The link: url, and codec and kbps for the downloads list. log gets each step, for the on-screen
+  // log. A song asked for twice at once, to play and to get ready as the next one, is resolved once.
   resolve(videoId, log) {
     const link = YtStream.links.get(videoId);
-    if (link && link.expires > Date.now()) return Promise.resolve(link.url);
+    if (link && link.expires > Date.now()) return Promise.resolve(link);
     let pending = YtStream.pending.get(videoId);
     if (!pending) {
       pending = YtStream.fetch(videoId, log).finally(() => YtStream.pending.delete(videoId));
@@ -448,7 +459,7 @@ const YtStream = {
     const link = (YtStream.vrRefused ? null : await YtStream.fromVr(videoId, visitor, log)) ||
       (await YtStream.fromWeb(videoId, visitor, log, true));
     YtStream.links.set(videoId, link);
-    return link.url;
+    return link;
   },
 
   // A link that failed while playing shouldn't be handed out again.
@@ -475,7 +486,7 @@ const YtStream = {
     const format = response && YtStream.status(response) === 'OK' ? YtStream.audioFormat(response) : null;
     if (format && format.url) {
       log('Verifico il link');
-      if (await YtStream.works(format.url, format)) return { url: format.url, expires: YtStream.expiry(response) };
+      if (await YtStream.works(format.url, format)) return YtStream.link(format.url, format, response);
     }
     YtStream.vrRefused = true;
     log('Client VR bloccato, uso il web');
@@ -493,7 +504,7 @@ const YtStream = {
       throw new YtError(reason || 'YouTube non dà questo brano');
     }
     const format = YtStream.audioFormat(response);
-    if (!format) throw new YtError('Nessun audio AAC per questo brano');
+    if (!format) throw new YtError('Nessun audio per questo brano');
 
     log('Decifro il link');
     const cipher = YtStream.query(format.signatureCipher || '');
@@ -511,7 +522,7 @@ const YtStream = {
     url += '&pot=' + (await token);
 
     log('Verifico il link');
-    if (await YtStream.works(url, format)) return { url, expires: YtStream.expiry(response) };
+    if (await YtStream.works(url, format)) return YtStream.link(url, format, response);
     if (!firstTry) throw new YtError('YouTube rifiuta il link');
     log('Link rifiutato, riprovo');
     PoToken.forget();
@@ -522,11 +533,19 @@ const YtStream = {
     return response.playabilityStatus && response.playabilityStatus.status;
   },
 
-  // AAC in MP4, what the player and the downloads already handle.
+  // Opus, else AAC, else the richest audio there is. Never a "DRC" copy, whose loudness is squeezed.
   audioFormat(response) {
     const formats = (response.streamingData && response.streamingData.adaptiveFormats) || [];
-    const audio = formats.filter((f) => f && String(f.mimeType || '').startsWith('audio/mp4'));
-    return audio.find((f) => f.itag === YtStream.AAC) || audio[0] || null;
+    const audio = formats.filter((f) => f && /^audio\/(webm|mp4)/.test(String(f.mimeType || '')) && !f.isDrc);
+    return audio.find((f) => f.itag === YtStream.OPUS) || audio.find((f) => f.itag === YtStream.AAC) ||
+      audio.sort((a, b) => (Number(b.bitrate) || 0) - (Number(a.bitrate) || 0))[0] || null;
+  },
+
+  // averageBitrate is the file's; bitrate, its peak, only stands in when that's missing.
+  link(url, format, response) {
+    const bps = Number(format.averageBitrate) || Number(format.bitrate) || 0;
+    const codec = String(format.mimeType || '').includes('opus') ? 'Opus' : 'AAC';
+    return { url, expires: YtStream.expiry(response), codec, kbps: Math.round(bps / 1000) };
   },
 
   // Whether YouTube would really serve the end of the file.

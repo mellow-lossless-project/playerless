@@ -2,6 +2,7 @@ package com.playerless
 
 import org.json.JSONObject
 import java.text.Normalizer
+import kotlin.math.abs
 
 data class Song(
     val id: String,
@@ -14,6 +15,8 @@ data class Song(
     // Length in seconds, 0 when unknown: search results have it, and it's kept with the song since
     // 1.2, so the lossless server can tell a live take from the studio one. Older entries lack it.
     val seconds: Int = 0,
+    // The uncensored recording, as its catalog marks it. Clean edits share the title.
+    val explicit: Boolean = false,
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id)
@@ -23,6 +26,7 @@ data class Song(
         .put("url", url)
         .put("kbps", kbps)
         .apply { if (seconds > 0) put("seconds", seconds) }
+        .apply { if (explicit) put("explicit", true) }
 
     companion object {
         fun fromJson(json: JSONObject) = Song(
@@ -33,6 +37,7 @@ data class Song(
             url = json.getString("url"),
             kbps = json.optInt("kbps").takeIf { it > 0 },
             seconds = json.optInt("seconds"),
+            explicit = json.optBoolean("explicit"),
         )
     }
 }
@@ -67,4 +72,36 @@ object Match {
         val joined = text.replace(" ", "")
         return words.all { it in text || it in joined }
     }
+
+    // A song as the catalogs name it: its title and first artist. Guests don't count, since only
+    // some catalogs put them in the title: YouTube's "Moulaga (con JUL)" is JioSaavn's "Moulaga".
+    fun key(song: Song) =
+        normalize(song.title.replace(featuring, "")) + "|" + normalize(song.artist.substringBefore(','))
+
+    private val featuring = Regex("\\s*[(\\[](?:con|feat\\.?|ft\\.?|with|featuring)\\s[^)\\]]*[)\\]]", RegexOption.IGNORE_CASE)
+
+    // One entry per recording. A catalog lists a song again on every compilation, and next to it
+    // its clean edit under the same title, often first: same title, first artist and length (within
+    // 2 s) count as one, in the place of the first. The uncensored one wins, then the higher bitrate.
+    fun oneEach(songs: List<Song>, kbps: (Song) -> Int = { 0 }): List<Song> {
+        val kept = ArrayList<Song>(songs.size)
+        val keys = ArrayList<String>(songs.size)
+        for (song in songs) {
+            val key = key(song)
+            val twin = kept.indices.firstOrNull { keys[it] == key && sameLength(kept[it], song) }
+            when {
+                twin == null -> {
+                    kept += song
+                    keys += key
+                }
+                rank(song, kbps) > rank(kept[twin], kbps) -> kept[twin] = song
+            }
+        }
+        return kept
+    }
+
+    private fun sameLength(a: Song, b: Song) =
+        if (a.seconds > 0 && b.seconds > 0) abs(a.seconds - b.seconds) <= 2 else a.seconds == b.seconds
+
+    private fun rank(song: Song, kbps: (Song) -> Int) = (if (song.explicit) 10_000 else 0) + kbps(song)
 }

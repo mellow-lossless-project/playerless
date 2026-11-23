@@ -9,8 +9,6 @@ const ACCENTS = [
   ['PURPLE', 'Viola', '#D500F9'], ['PINK', 'Rosa', '#FF4081'], ['WHITE', 'Bianco', '#FFFFFF'],
 ];
 const QUALITIES = [320, 160, 96];
-// YouTube's AAC stream, itag 140.
-const YOUTUBE_KBPS = 128;
 // The phone shows 2; a desktop row has room for more.
 const MOST_PLAYED_COUNT = 6;
 // A song counts once 30 s of it were heard, so skipping through a queue doesn't inflate the stats.
@@ -22,6 +20,8 @@ const LOG_LINES = 8;
 const NON_WORD = /[^\p{L}\p{N}]+/gu;
 const MARKS = /\p{M}+/gu;
 const APOSTROPHES = /['’‘`´]/g;
+// A guest in a title, "(con JUL)" or "(feat. Drake)": see matchKey.
+const FEATURING = /\s*[(\[](?:con|feat\.?|ft\.?|with|featuring)\s[^)\]]*[)\]]/gi;
 
 // The phone's vector icons.
 const ICONS = {
@@ -140,17 +140,16 @@ const Downloads = {
     refresh();
     try {
       // A YouTube song has one rendition, the one it streams.
-      const youtube = YouTube.isYouTube(song);
-      const url = youtube ? await YtStream.resolve(song.url.slice(YouTube.PREFIX.length), () => {})
-        : kbps != null ? Saavn.withQuality(song.url, kbps) : song.url;
+      const youtube = YouTube.isYouTube(song) ? await YtStream.resolve(song.url.slice(YouTube.PREFIX.length), () => {}) : null;
+      const url = youtube ? youtube.url : kbps != null ? Saavn.withQuality(song.url, kbps) : song.url;
       const response = await fetch('/api/download', {
         method: 'POST',
-        body: JSON.stringify({ name: safeName(song.id), url, ranged: youtube, cover: song.image ? Covers.big(song.image) : null }),
+        body: JSON.stringify({ name: safeName(song.id), url, ranged: Boolean(youtube), cover: song.image ? Covers.big(song.image) : null }),
       });
       if (!response.ok) throw new Error(await response.text());
       // Keeps the online URL, so the song still plays anywhere it's saved if the file is deleted.
       const saved = { id: song.id, title: song.title, artist: song.artist, image: song.image, url: song.url };
-      const bitrate = youtube ? YOUTUBE_KBPS : kbps;
+      const bitrate = youtube ? youtube.kbps : kbps;
       if (bitrate != null) saved.kbps = bitrate;
       Store.downloads = [saved, ...Store.downloads.filter((s) => s.id !== song.id)];
       Downloads.changed();
@@ -353,10 +352,10 @@ const Player = {
         src = Downloads.audioUrl(song);
       } else if (YouTube.isYouTube(song)) {
         // The stream URL is found the moment it's needed.
-        const url = await YtStream.resolve(song.url.slice(YouTube.PREFIX.length), log);
+        const link = await YtStream.resolve(song.url.slice(YouTube.PREFIX.length), log);
         if (token !== Player.token) return;
         log("Link pronto, carico l'audio");
-        src = Net.stream(url);
+        src = Net.stream(link.url);
       } else {
         log("Carico l'audio da JioSaavn");
         src = Net.stream(Saavn.withQuality(song.url, Store.settings.quality));
@@ -941,18 +940,44 @@ async function runSearch(query) {
 // Best match first, as on the phone: the more of the query a song has in its title and artist, the
 // higher. For artists JioSaavn lacks it fills its answer with other songs of the same name; the song
 // itself then comes from YouTube and must still come first. On a tie JioSaavn wins: it starts at
-// once and goes up to 320 kbps. A YouTube song JioSaavn also has is left out.
+// once and goes up to 320 kbps. A YouTube song JioSaavn also has is left out, unless JioSaavn has only
+// its clean edit: then the uncensored one from YouTube takes that place.
 function merge(query, saavn, youtube) {
   const words = queryWords(query);
-  const onSaavn = new Set(saavn.map(matchKey));
-  return saavn.concat(youtube.filter((s) => !onSaavn.has(matchKey(s))))
+  const uncensored = new Set(saavn.concat(youtube).filter((s) => s.explicit).map(matchKey));
+  const kept = saavn.filter((s) => s.explicit || !uncensored.has(matchKey(s)));
+  const onSaavn = new Set(kept.map(matchKey));
+  return kept.concat(youtube.filter((s) => !onSaavn.has(matchKey(s))))
     .map((song, i) => ({ song, i, score: matchScore(words, song) }))
     .sort((a, b) => b.score - a.score || a.i - b.i)
     .map((x) => x.song);
 }
 
+// Guests don't count, since only some catalogs put them in the title: YouTube's "Moulaga (con JUL)"
+// is JioSaavn's "Moulaga".
 function matchKey(song) {
-  return normalize(song.title) + '|' + normalize(song.artist.split(',')[0]);
+  return normalize(song.title.replace(FEATURING, '')) + '|' + normalize(song.artist.split(',')[0]);
+}
+
+// One entry per recording, as on the phone. A catalog lists a song again on every compilation, and
+// next to it its clean edit under the same title, often first: same title, first artist and length
+// (within 2 s) count as one, in the place of the first. The uncensored one wins, then the bitrate.
+function oneEach(songs, kbps = () => 0) {
+  const kept = [];
+  const keys = [];
+  const rank = (song) => (song.explicit ? 10000 : 0) + kbps(song);
+  const sameLength = (a, b) => (a.seconds > 0 && b.seconds > 0 ? Math.abs(a.seconds - b.seconds) <= 2 : a.seconds === b.seconds);
+  for (const song of songs) {
+    const key = matchKey(song);
+    const twin = kept.findIndex((other, i) => keys[i] === key && sameLength(other, song));
+    if (twin < 0) {
+      kept.push(song);
+      keys.push(key);
+    } else if (rank(song) > rank(kept[twin])) {
+      kept[twin] = song;
+    }
+  }
+  return kept;
 }
 
 // Lowercase, accents and apostrophes dropped, anything else that isn't a letter or digit one space:

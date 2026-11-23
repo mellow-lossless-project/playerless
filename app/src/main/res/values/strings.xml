@@ -33,7 +33,7 @@
     <string name="quality_lossless">Lossless FLAC (%1$d kbps)</string>
     <string name="quality_saavn">JioSaavn (%1$d kbps)</string>
     <string name="quality_saavn_stream">JioSaavn</string>
-    <string name="quality_youtube">YouTube (128 kbps)</string>
+    <string name="quality_youtube">YouTube (Opus, circa 130 kbps)</string>
     <string name="lossless_server">Server lossless</string>
     <string name="lossless_server_default">Predefinito</string>
     <string name="lossless_upgrade">Riscarica in lossless</string>
@@ -80,4 +80,12 @@
     <string name="accent_purple">Viola</string>
     <string name="accent_pink">Rosa</string>
     <string name="accent_white">Bianco</string>
+    <string name="update">Aggiornamenti</string>
+    <string name="update_idle">Versione %1$s: tocca per controllare</string>
+    <string name="update_checking">Controllo GitHub…</string>
+    <string name="update_downloading">Scarico la %1$s…</string>
+    <string name="update_ready">%1$s pronta: tocca per installare</string>
+    <string name="update_current">Versione %1$s, l\'ultima</string>
+    <string name="update_check_failed">Versione %1$s: GitHub non risponde, tocca per riprovare</string>
+    <string name="update_failed">Aggiornamento non installato: %1$s</string>
 </resources>
