@@ -9,8 +9,6 @@ const ACCENTS = [
   ['PURPLE', 'Viola', '#D500F9'], ['PINK', 'Rosa', '#FF4081'], ['WHITE', 'Bianco', '#FFFFFF'],
 ];
 const QUALITIES = [320, 160, 96];
-// YouTube's AAC stream, itag 140.
-const YOUTUBE_KBPS = 128;
 // The phone shows 2; a desktop row has room for more.
 const MOST_PLAYED_COUNT = 6;
 // A song counts once 30 s of it were heard, so skipping through a queue doesn't inflate the stats.
@@ -142,17 +140,16 @@ const Downloads = {
     refresh();
     try {
       // A YouTube song has one rendition, the one it streams.
-      const youtube = YouTube.isYouTube(song);
-      const url = youtube ? await YtStream.resolve(song.url.slice(YouTube.PREFIX.length), () => {})
-        : kbps != null ? Saavn.withQuality(song.url, kbps) : song.url;
+      const youtube = YouTube.isYouTube(song) ? await YtStream.resolve(song.url.slice(YouTube.PREFIX.length), () => {}) : null;
+      const url = youtube ? youtube.url : kbps != null ? Saavn.withQuality(song.url, kbps) : song.url;
       const response = await fetch('/api/download', {
         method: 'POST',
-        body: JSON.stringify({ name: safeName(song.id), url, ranged: youtube, cover: song.image ? Covers.big(song.image) : null }),
+        body: JSON.stringify({ name: safeName(song.id), url, ranged: Boolean(youtube), cover: song.image ? Covers.big(song.image) : null }),
       });
       if (!response.ok) throw new Error(await response.text());
       // Keeps the online URL, so the song still plays anywhere it's saved if the file is deleted.
       const saved = { id: song.id, title: song.title, artist: song.artist, image: song.image, url: song.url };
-      const bitrate = youtube ? YOUTUBE_KBPS : kbps;
+      const bitrate = youtube ? youtube.kbps : kbps;
       if (bitrate != null) saved.kbps = bitrate;
       Store.downloads = [saved, ...Store.downloads.filter((s) => s.id !== song.id)];
       Downloads.changed();
@@ -355,10 +352,10 @@ const Player = {
         src = Downloads.audioUrl(song);
       } else if (YouTube.isYouTube(song)) {
         // The stream URL is found the moment it's needed.
-        const url = await YtStream.resolve(song.url.slice(YouTube.PREFIX.length), log);
+        const link = await YtStream.resolve(song.url.slice(YouTube.PREFIX.length), log);
         if (token !== Player.token) return;
         log("Link pronto, carico l'audio");
-        src = Net.stream(url);
+        src = Net.stream(link.url);
       } else {
         log("Carico l'audio da JioSaavn");
         src = Net.stream(Saavn.withQuality(song.url, Store.settings.quality));

@@ -57,6 +57,9 @@ object Downloads {
 
     fun isDownloading(song: Song) = song.id in inProgress
 
+    // Main thread. A download or the lossless swap is running.
+    val busy: Boolean get() = inProgress.isNotEmpty() || upgrade != null
+
     fun localFile(id: String): File? = audioFile(id).takeIf { it.exists() }
 
     fun imageFor(song: Song): String {

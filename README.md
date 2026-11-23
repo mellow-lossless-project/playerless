@@ -4,21 +4,24 @@
 
 Player musicale per Android, ultra leggero: cerca e riproduce da JioSaavn e YouTube Music, scarica i brani per ascoltarli offline e pesa meno di 1 MB. Gira anche sul PC Windows, e lì importa tutto dal telefono: vedi [Playerless per PC](#playerless-per-pc).
 
-Il nome è un gioco di parole: suona come "lossless". L'audio è AAC fino a 320 kbps da JioSaavn, 128 kbps da YouTube; con la qualità "Lossless FLAC" l'app chiede prima il brano a un server in stile Monochrome (lo stesso protocollo che usa Mochy Music) e suona FLAC quando il server lo dà.
+Il nome è un gioco di parole: suona come "lossless". Con la qualità "Lossless FLAC", quella predefinita, l'app chiede prima il brano a un server in stile Monochrome (lo stesso protocollo che usa Mochy Music) e suona FLAC quando il server lo dà. Altrimenti l'audio è AAC fino a 320 kbps da JioSaavn, oppure Opus da circa 130 kbps da YouTube.
 
 ## Funzioni
 
 - **Ricerca** istantanea: i brani scaricati compaiono subito in cima, anche senza rete. JioSaavn e YouTube Music si cercano insieme; se uno dei due è lento, i risultati dell'altro compaiono dopo al massimo un secondo e mezzo. In cima va il brano che contiene più parole cercate, e accenti, apostrofi e spazi non contano: "season25" trova "Season 25", "foushee" trova "Fousheé"
-- **YouTube Music** per gli artisti che JioSaavn non ha: i suoi brani sono segnati "· YouTube" e partono in qualche secondo
+- **Versioni non censurate**: ogni brano compare una volta sola, anche se il catalogo lo ripete in dieci compilation, e sempre nella versione esplicita. JioSaavn ha quasi sempre l'originale, ma spesso mette prima la versione pulita con lo stesso titolo: l'app la scarta. Se JioSaavn ha solo quella pulita e YouTube Music l'originale, compare quella di YouTube. Anche il server lossless sceglie la versione esplicita
+- **YouTube Music** per gli artisti che JioSaavn non ha: i suoi brani sono segnati "· YouTube" e partono in qualche secondo, in Opus, il formato migliore che YouTube dà senza Premium
 - **Log di caricamento** mentre un brano si prepara, che sparisce appena parte
 - **Playlist da Spotify** importate dal PC con un bot (vedi sotto)
 - **Equalizzatore** a curva da 20 Hz a 20 kHz: fino a 12 punti da trascinare, ognuno con la sua larghezza, nel colore dell'app. Ogni punto è un filtro a campana applicato dal player; quando la curva sale, il volume generale scende di altrettanto, così i picchi non distorcono
-- **Qualità streaming** in ordine: Lossless FLAC (1411 kbps), JioSaavn (320, 160 o 96 kbps). Con Lossless compare anche "Server lossless", per usare un server diverso da `tracks.monochrome.st`. A novembre 2026 quel server manda FLAC per alcuni brani (anche 24 bit / 96 kHz) e AAC a ~320 kbps per altri: l'app glielo chiede per ogni brano, suona il FLAC quando c'è e altrimenti la sorgente migliore. Nel player, tra i due tempi, c'è scritto cosa sta suonando davvero (per esempio "Lossless · FLAC 24 bit · 96,0 kHz" o "JioSaavn · AAC 320 kbps")
-- **Download offline** scegliendo la qualità per ogni brano: Lossless dal server lossless (se non ha il brano, scarica il meglio della sorgente normale), oppure 320, 160 o 96 kbps da JioSaavn, 128 da YouTube. Nei Scaricati compaiono i kbps reali del file. Anche i brani scaricati si riproducono tutti, in ordine o casuale. Un brano scaricato suona sempre dal telefono: per averlo in lossless, Impostazioni → "Riscarica in lossless" sostituisce i brani scaricati con il FLAC dove il server lo ha (meglio col Wi-Fi: 25–40 MB a brano). Va avanti anche a schermo spento o con l'app chiusa, con una notifica che conta i brani
+- **Qualità streaming** in ordine: Lossless FLAC (1411 kbps, la predefinita), JioSaavn (320, 160 o 96 kbps). Con Lossless compare anche "Server lossless", per usare un server diverso da `tracks.monochrome.st`. A novembre 2026 quel server ha quasi tutto (20 brani famosi su 20, rap italiano compreso) e manda FLAC per quasi tutti, anche a 24 bit / 96 kHz, AAC a ~320 kbps per pochi altri: l'app glielo chiede per ogni brano, suona il FLAC quando c'è e altrimenti la sorgente migliore. Nel player, tra i due tempi, c'è scritto cosa sta suonando davvero (per esempio "Lossless · FLAC 24 bit · 96,0 kHz", "JioSaavn · AAC 320 kbps" o "YouTube · Opus 135 kbps")
+- **Lossless senza attese**: per un brano che non ha mai preparato, il server ci mette da 3 a 17 secondi. Un brano lo aspetta al massimo 6 secondi, poi parte dalla sua sorgente normale, mentre il server finisce di prepararlo: la volta dopo è in FLAC. Il brano successivo nella coda si prepara mentre suona quello prima, con tutto il tempo che serve, e parte subito in FLAC. Le risposte del server restano in memoria anche chiudendo l'app, così un brano già ascoltato salta la ricerca
+- **Download offline** scegliendo la qualità per ogni brano: Lossless dal server lossless (se non ha il brano, scarica il meglio della sorgente normale), oppure 320, 160 o 96 kbps da JioSaavn, Opus da circa 130 kbps da YouTube. Nei Scaricati compaiono i kbps reali del file. Anche i brani scaricati si riproducono tutti, in ordine o casuale. Un brano scaricato suona sempre dal telefono: per averlo in lossless, Impostazioni → "Riscarica in lossless" sostituisce i brani scaricati con il FLAC dove il server lo ha (meglio col Wi-Fi: 25–40 MB a brano). Va avanti anche a schermo spento o con l'app chiusa, con una notifica che conta i brani
 - **Playlist** locali, con riproduzione in ordine o casuale
 - **Ascolti più spesso** in home
 - **Player a schermo intero** con artista, tempo trascorso e durata, avanzamento e volume
 - **Notifica** e riproduzione in background
+- **Aggiornamenti da GitHub**: all'avvio, al massimo ogni 6 ore, l'app chiede a GitHub qual è l'ultima release (una sola richiesta, senza scaricare pagine). Se ce n'è una nuova la scarica in sottofondo (meno di 1 MB) e mostra la richiesta di installazione di Android: basta un tocco. Non la mostra mentre suona la musica o mentre scarica, perché l'installazione chiude l'app; aspetta la volta dopo. In Impostazioni → Aggiornamenti si controlla a mano
 - **Colore d'accento** a scelta tra 9, su sfondo nero
 - **Tema** a scelta tra Classico (quello sopra) e due poster: *Poster nero*, inchiostro oliva su nero granuloso, e *Poster carta*, nero su carta grigia con griglia e fasce nere con il salmone. Nei poster le copertine sono stampate in due inchiostri con la grana di una fotocopia; nel player a schermo intero, tenendo il dito sulla copertina si vede l'originale. Il colore d'accento vale solo per il Classico
 
@@ -26,9 +29,9 @@ L'interfaccia è solo in italiano.
 
 ## Scaricare
 
-**[Scarica Playerless.apk](https://github.com/mellow-lossless-project/playerless/raw/main/Playerless.apk)** (versione 1.4)
+**[Scarica Playerless.apk](https://github.com/mellow-lossless-project/playerless/raw/main/Playerless.apk)** (versione 1.5)
 
-Ogni versione è anche nelle [Release](https://github.com/mellow-lossless-project/playerless/releases), con l'APK allegato e le novità. Si installa sopra la precedente: playlist e download restano.
+Ogni versione è anche nelle [Release](https://github.com/mellow-lossless-project/playerless/releases), con l'APK allegato e le novità. Si installa sopra la precedente: playlist e download restano. Dalla 1.5 l'app trova da sola le versioni nuove: la prima volta Android chiede di consentire a Playerless di installare app, poi basta toccare "Installa".
 
 Serve Android 8 o successivo. Al primo avvio dell'installazione il telefono chiederà di consentire le app da fonti sconosciute.
 

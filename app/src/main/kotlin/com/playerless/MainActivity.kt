@@ -93,6 +93,8 @@ class MainActivity : Activity() {
     // Off screen nothing is drawn; whatever changed meanwhile is drawn in onStart.
     private var started = false
     private var stale = false
+    // In front and taking touches: the only time an update may ask to be installed.
+    private var resumed = false
 
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) = render()
@@ -116,6 +118,11 @@ class MainActivity : Activity() {
         Equalizer.init(this)
         YouTube.init(this)
         YtStream.init(this)
+        Updater.init(this)
+        Updater.onChanged = {
+            if (screen == Screen.SETTINGS) refreshList()
+            offerUpdate()
+        }
 
         search = findViewById(R.id.search)
         titleRow = findViewById(R.id.titleRow)
@@ -185,6 +192,13 @@ class MainActivity : Activity() {
         playlistId = savedInstanceState?.getString(KEY_PLAYLIST)
         showScreen(savedInstanceState?.getString(KEY_SCREEN)?.let(Screen::valueOf) ?: Screen.HOME)
         connect()
+        if (intent?.action == Updater.ACTION_STATUS) Updater.onStatus(this, intent)
+    }
+
+    // Android's answer about an update being installed; see Updater.install.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action == Updater.ACTION_STATUS) Updater.onStatus(this, intent)
     }
 
     // Bound for the whole life of the activity: a paused player stays alive after Media3 leaves the
@@ -200,6 +214,7 @@ class MainActivity : Activity() {
             playerScreen?.resume()
             pendingQueue?.invoke()
             pendingQueue = null
+            offerUpdate()
         }, MoreExecutors.directExecutor())
     }
 
@@ -228,7 +243,24 @@ class MainActivity : Activity() {
     // The Spotify tool on the PC pushes its file, then reopens the app: that lands here.
     override fun onResume() {
         super.onResume()
+        resumed = true
         SpotifyImport.checkForFile(this)
+        Updater.checkIfDue()
+        offerUpdate()
+    }
+
+    override fun onPause() {
+        resumed = false
+        super.onPause()
+    }
+
+    // A new version downloaded: Android asks the user to install it. Not while music plays or a
+    // download runs, since installing ends the app; it waits for the next time the app is opened.
+    private fun offerUpdate() {
+        val player = controller ?: return
+        val musicOn = player.isPlaying || (player.playWhenReady && player.playbackState == Player.STATE_BUFFERING)
+        if (!resumed || musicOn || Downloads.busy || SpotifyImport.progress != null) return
+        if (Updater.shouldOffer()) Updater.install()
     }
 
     override fun onStop() {
@@ -246,6 +278,7 @@ class MainActivity : Activity() {
         LoadLog.onChanged = null
         NowPlaying.onChanged = null
         SpotifyImport.onChanged = null
+        Updater.onChanged = null
         main.removeCallbacks(logTick)
         executor.shutdown()
         youtubeSearch.shutdown()
@@ -397,7 +430,19 @@ class MainActivity : Activity() {
             // The posters bring their own inks: the accent is the classic theme's.
             HomeItem.Row(getString(R.string.accent), getString(Settings.accent.label), ::chooseAccent)
                 .takeIf { Settings.look == Look.CLASSIC },
+            HomeItem.Row(getString(R.string.update), updateSummary()) {
+                if (Updater.state == Updater.State.READY) Updater.install() else Updater.check()
+            },
         )
+    }
+
+    private fun updateSummary(): String = when (Updater.state) {
+        Updater.State.IDLE -> getString(R.string.update_idle, Updater.installed)
+        Updater.State.CHECKING -> getString(R.string.update_checking)
+        Updater.State.DOWNLOADING -> getString(R.string.update_downloading, Updater.available)
+        Updater.State.READY -> getString(R.string.update_ready, Updater.available)
+        Updater.State.CURRENT -> getString(R.string.update_current, Updater.installed)
+        Updater.State.FAILED -> getString(R.string.update_check_failed, Updater.installed)
     }
 
     private fun upgradeSummary(): String {
