@@ -128,7 +128,8 @@ object Updater {
         when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 @Suppress("DEPRECATION")
-                intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)?.let(activity::startActivity)
+                val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
+                if (confirm != null) activity.startActivity(confirm)
             }
             // The new version replaces this one, which ends here. Turned down: see ASK_AGAIN_MS.
             PackageInstaller.STATUS_SUCCESS, PackageInstaller.STATUS_FAILURE_ABORTED -> Unit

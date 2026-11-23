@@ -192,7 +192,8 @@ class MainActivity : Activity() {
         playlistId = savedInstanceState?.getString(KEY_PLAYLIST)
         showScreen(savedInstanceState?.getString(KEY_SCREEN)?.let(Screen::valueOf) ?: Screen.HOME)
         connect()
-        if (intent?.action == Updater.ACTION_STATUS) Updater.onStatus(this, intent)
+        // Started by that answer. Not again when the activity is only rebuilt, e.g. for a new theme.
+        if (savedInstanceState == null && intent?.action == Updater.ACTION_STATUS) Updater.onStatus(this, intent)
     }
 
     // Android's answer about an update being installed; see Updater.install.
