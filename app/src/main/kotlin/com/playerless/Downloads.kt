@@ -9,6 +9,7 @@ import android.util.AtomicFile
 import android.widget.Toast
 import org.json.JSONArray
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -17,6 +18,10 @@ import java.util.concurrent.Executors
 
 // Kept free for the phone itself: a download that would leave less doesn't start.
 private const val RESERVE_BYTES = 300L * 1024 * 1024
+
+// Connections one file may take: a 100 MB FLAC at the lossless server's ~5 MB each needs 20.
+private const val MAX_TRIES = 60
+private const val MAX_IDLE_TRIES = 3
 
 // The phone is too full for one more download.
 class NoSpace : IOException("not enough space")
@@ -213,20 +218,13 @@ object Downloads {
         return if (lossless) Lang.get(R.string.download_not_lossless, what) else what
     }
 
-    // Null when the lossless server hasn't the song or doesn't answer.
+    // Null when the lossless server hasn't the song or doesn't answer. A file it has but can't get
+    // across, even piece by piece, fails the download: lossless was asked for, and a lesser copy
+    // saved in its place would then play instead of the stream, which does come in lossless.
     private fun fetchLossless(song: Song): String? {
         val found = Lossless.resolve(song.title, song.artist, song.seconds) {} ?: return null
         val file = audioFile(song.id)
-        try {
-            save(found.url, file, headers = mapOf("User-Agent" to Lossless.UA))
-        } catch (e: NoSpace) {
-            throw e
-        } catch (_: IOException) {
-            // The server's file broke off: the song's own source instead, and the server isn't asked
-            // about this song again for a while.
-            Lossless.failed(song.title, song.artist)
-            return null
-        }
+        save(found.url, file, headers = mapOf("User-Agent" to Lossless.UA))
         // Never the bytes the song streams: a song playing doesn't move onto this file mid-way.
         sources.remove(song.id)
         // What the file really is, FLAC or not: its size over its length.
@@ -240,26 +238,62 @@ object Downloads {
         synchronized(this) { write(listOf(saved) + list().filterNot { it.id == saved.id }) }
     }
 
-    // Through a .part file, so the target only ever exists complete. YouTube throttles a request
-    // without a range to about twice the song's bitrate; with one, even open-ended, it doesn't.
+    // Through a .part file, so the target only ever exists complete. A file comes in as many pieces as
+    // it takes: the lossless server sends a big FLAC a few MB per connection, pausing for seconds (on
+    // 2026-11-24 a 40 MB one came in 7 pieces, and no download of it in one piece got through), and
+    // any connection may drop. So each try asks, with a range, only for what's still missing, and
+    // the download fails after MAX_IDLE_TRIES tries in a row that brought nothing. YouTube throttles
+    // a request without a range to about twice the song's bitrate; with one, even open-ended, it
+    // doesn't.
     private fun save(url: String, target: File, ranged: Boolean = false, headers: Map<String, String> = emptyMap()) {
         val part = File(dir, "${target.name}.part")
-        val conn = URL(url).openConnection() as HttpURLConnection
+        part.delete()
         try {
-            conn.connectTimeout = 4_000
-            conn.readTimeout = 15_000
-            conn.useCaches = false
-            headers.forEach { (name, value) -> conn.setRequestProperty(name, value) }
-            if (ranged) conn.setRequestProperty("Range", "bytes=0-")
-            val expected = conn.contentLengthLong
-            if (dir.usableSpace - expected.coerceAtLeast(0) < RESERVE_BYTES) throw NoSpace()
-            val written = conn.inputStream.use { input ->
-                part.outputStream().use { input.copyTo(it) }
+            var total = -1L
+            var whole = false
+            var failure: IOException? = null
+            var idle = 0
+            for (attempt in 1..MAX_TRIES) {
+                val have = part.length()
+                failure = null
+                val conn = URL(url).openConnection() as HttpURLConnection
+                try {
+                    conn.connectTimeout = 5_000
+                    conn.readTimeout = 15_000
+                    conn.useCaches = false
+                    headers.forEach { (name, value) -> conn.setRequestProperty(name, value) }
+                    if (ranged || have > 0) conn.setRequestProperty("Range", "bytes=$have-")
+                    val code = conn.responseCode
+                    if (code !in 200..299) throw IOException("HTTP $code")
+                    // A server that ignores the range sends the whole file again: it starts over.
+                    val append = code == 206 && have > 0
+                    val length = conn.contentLengthLong
+                    total = if (code == 206) {
+                        conn.getHeaderField("Content-Range")?.substringAfter('/')?.toLongOrNull() ?: if (length >= 0) have + length else -1
+                    } else {
+                        length
+                    }
+                    val missing = total - (if (append) have else 0)
+                    if (dir.usableSpace - missing.coerceAtLeast(0) < RESERVE_BYTES) throw NoSpace()
+                    conn.inputStream.use { input -> FileOutputStream(part, append).use { input.copyTo(it) } }
+                } catch (e: NoSpace) {
+                    throw e
+                } catch (e: IOException) {
+                    failure = e
+                } finally {
+                    conn.disconnect()
+                }
+                val now = part.length()
+                // Without a length, an answer that ends cleanly is the whole file.
+                whole = if (total >= 0) now == total else failure == null
+                if (whole || total in 0 until now) break
+                idle = if (now > have) 0 else idle + 1
+                if (idle >= MAX_IDLE_TRIES) break
+                if (idle > 0) Thread.sleep(1_000L * idle)
             }
-            if (expected >= 0 && written != expected) throw IOException("truncated download")
+            if (!whole) throw failure ?: IOException("truncated download")
             if (!part.renameTo(target)) throw IOException("rename failed")
         } finally {
-            conn.disconnect()
             part.delete()
         }
     }
