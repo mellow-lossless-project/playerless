@@ -42,7 +42,8 @@ object SaavnApi {
         val results = JSONObject(get(url)).optJSONArray("results") ?: return emptyList()
         // Checked 2026-11-23: the explicit recording is nearly always there, but its clean edit often
         // comes first ("Hotline Bling", "Shottas (Lala)"), and the cookie below doesn't change that.
-        val songs = (0 until results.length()).mapNotNull { parseSong(results.getJSONObject(it)) }
+        // An odd entry costs only itself.
+        val songs = (0 until results.length()).mapNotNull { i -> results.optJSONObject(i)?.let(::parseSong) }
         return Match.oneEach(songs) { kbpsOf(it.url) ?: 0 }
     }
 

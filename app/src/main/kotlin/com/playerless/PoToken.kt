@@ -35,7 +35,7 @@ object PoToken {
         minter?.takeIf { !it.dead && System.currentTimeMillis() < expires }?.let { return it }
         forget()
 
-        log("Avvio BotGuard (anti-bot)")
+        log(Lang.get(R.string.botguard_start))
         val html = context.assets.open("yt/botguard.html").bufferedReader().use { it.readText() }
         val page = JsPage.open(context, "https://www.youtube.com/", html)
         try {
@@ -49,7 +49,7 @@ object PoToken {
             throw e
         }
         minter = page
-        log("BotGuard pronto")
+        log(Lang.get(R.string.botguard_ready))
         return page
     }
 

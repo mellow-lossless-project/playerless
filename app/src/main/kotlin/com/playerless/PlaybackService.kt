@@ -1,7 +1,9 @@
 package com.playerless
 
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -66,6 +68,9 @@ class PlaybackService : MediaSessionService() {
     private val origins = ConcurrentHashMap<String, String>()
     private val ahead = Executors.newSingleThreadExecutor()
 
+    // The notification's buttons in the app's language.
+    override fun attachBaseContext(base: Context) = super.attachBaseContext(Lang.wrap(base))
+
     @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
@@ -100,9 +105,9 @@ class PlaybackService : MediaSessionService() {
             val origin = origins[id] ?: FROM_STREAM
             when {
                 local != null && (origin == FROM_DISK || (origin == FROM_STREAM && Downloads.sameAsStream(id, spec.uri.toString()))) -> {
-                    if (first) LoadLog.add(id, "Apro il brano scaricato")
+                    if (first) LoadLog.add(id, Lang.get(R.string.log_open_download))
                     val kbps = Downloads.list().find { it.id == id }?.kbps
-                    NowPlaying.set(id, if (kbps != null) "Scaricato · $kbps kbps" else "Scaricato")
+                    NowPlaying.set(id, if (kbps != null) Lang.get(R.string.now_downloaded_kbps, kbps) else Lang.get(R.string.now_downloaded))
                     spec.withUri(Uri.fromFile(local))
                 }
                 // Its label was set when the lossless server was chosen.
@@ -118,14 +123,14 @@ class PlaybackService : MediaSessionService() {
                         throw YtException(e.message ?: e.javaClass.simpleName)
                     }
                     NowPlaying.set(id, "YouTube · ${link.codec} ${link.kbps} kbps")
-                    log("Link pronto, carico l'audio")
+                    log(Lang.get(R.string.log_link_ready))
                     // From the start of a file the player asks for no range, and YouTube serves a
                     // request without one at about twice the song's bitrate: enough to play, slow
                     // to buffer. A range of any kind gets full speed.
                     spec.withUri(Uri.parse(link.url)).withAdditionalHeaders(mapOf("Range" to "bytes=${spec.position}-"))
                 }
                 else -> {
-                    if (first) LoadLog.add(id, "Carico l'audio da JioSaavn")
+                    if (first) LoadLog.add(id, Lang.get(R.string.log_load_saavn))
                     val kbps = SaavnApi.kbpsOf(spec.uri.toString())
                     NowPlaying.set(id, if (kbps != null) "JioSaavn · AAC $kbps kbps" else "JioSaavn")
                     spec
@@ -186,7 +191,7 @@ class PlaybackService : MediaSessionService() {
                 val info = id?.let { queued[it] }
                 if (origin != null && origin != FROM_DISK && origin != FROM_STREAM && info != null) {
                     Lossless.failed(info.title, info.artist)
-                    LoadLog.add(id, "Il file lossless si è interrotto: riparto dalla sorgente del brano")
+                    LoadLog.add(id, Lang.get(R.string.log_lossless_broke))
                     player.prepare()
                     return
                 }
@@ -226,18 +231,22 @@ class PlaybackService : MediaSessionService() {
     // JioSaavn's 320. Every song is asked about, since the server has FLAC for some and not others.
     // Null: the song's own source.
     private fun losslessUrl(id: String, youtube: Boolean): String? {
-        if (!Settings.lossless) return null
+        if (!losslessAllowed()) return null
         val info = queued[id] ?: return null
         val log: (String) -> Unit = { LoadLog.add(id, it) }
         val found = Lossless.resolve(info.title, info.artist, info.seconds, LOSSLESS_WAIT_MS, log) ?: return null
         if (!found.flac && !youtube) {
-            log("${found.label}, non FLAC: resto su JioSaavn 320 kbps")
+            log(Lang.get(R.string.log_lossless_not_flac, found.label))
             return null
         }
-        log("Carico l'audio dal server lossless (${found.label})")
-        NowPlaying.set(id, if (found.flac) "Lossless · ${found.label}" else "Server lossless · ${found.label}, non FLAC")
+        log(Lang.get(R.string.log_load_lossless, found.label))
+        NowPlaying.set(id, if (found.flac) "Lossless · ${found.label}" else Lang.get(R.string.now_lossless_not_flac, found.label))
         return found.url
     }
+
+    // The Lossless quality, on a network that isn't metered unless lossless is allowed there too.
+    private fun losslessAllowed() = Settings.lossless &&
+        (Settings.losslessOnMobile || !getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered)
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
@@ -278,6 +287,8 @@ class PlaybackService : MediaSessionService() {
             artist = item.mediaMetadata.artist.toString(),
             image = item.requestMetadata.extras?.getString(EXTRA_IMAGE) ?: item.mediaMetadata.artworkUri?.toString().orEmpty(),
             url = item.requestMetadata.extras?.getString(EXTRA_URL) ?: item.requestMetadata.mediaUri.toString(),
+            // Played again from home, its length still picks the same recording on the lossless server.
+            seconds = item.requestMetadata.extras?.getInt(EXTRA_SECONDS) ?: 0,
         )
     }
 
@@ -286,7 +297,7 @@ class PlaybackService : MediaSessionService() {
     // FLAC even when the server is slow. Downloads need none.
     private inner class LosslessAhead(private val player: Player) : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            if (!Settings.lossless) return
+            if (!losslessAllowed()) return
             val index = player.nextMediaItemIndex
             if (index == C.INDEX_UNSET) return
             val next = player.getMediaItemAt(index).mediaId

@@ -111,7 +111,8 @@
     <LinearLayout
         android:id="@+id/player"
         android:layout_width="match_parent"
-        android:layout_height="64dp"
+        android:layout_height="wrap_content"
+        android:minHeight="64dp"
         android:background="?attr/playerBarBackground"
         android:foreground="@drawable/pressed_bar"
         android:gravity="center_vertical"

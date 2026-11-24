@@ -15,6 +15,12 @@ import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
+// Kept free for the phone itself: a download that would leave less doesn't start.
+private const val RESERVE_BYTES = 300L * 1024 * 1024
+
+// The phone is too full for one more download.
+class NoSpace : IOException("not enough space")
+
 // Offline songs live in filesDir/music, listed newest first in index.json. Every file is named .m4a,
 // whatever it holds (AAC in MP4, FLAC, Opus in WebM): the player tells them by their first bytes.
 object Downloads {
@@ -85,8 +91,8 @@ object Downloads {
                 inProgress.remove(song.id)
                 // Says what was saved, so a "lossless" download that isn't FLAC doesn't pass for one.
                 val message = result.fold(
-                    { appContext.getString(R.string.download_done, song.title, it) },
-                    { appContext.getString(R.string.download_failed, song.title) },
+                    { Lang.get(R.string.download_done, song.title, it) },
+                    { Lang.get(if (it is NoSpace) R.string.download_no_space else R.string.download_failed, song.title) },
                 )
                 Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
                 onChanged?.invoke()
@@ -96,9 +102,10 @@ object Downloads {
 
     // Main thread. Swaps each downloaded song that isn't FLAC yet for the lossless server's FLAC,
     // where the server has one; the others stay as they are. One at a time, behind any download.
-    // progress gets songs done and in all; done gets how many are FLAC now and how many stayed as
-    // they were. Run by UpgradeService, which keeps the app alive meanwhile. False if one is running.
-    fun upgradeToLossless(progress: (done: Int, total: Int) -> Unit, done: (flac: Int, kept: Int) -> Unit): Boolean {
+    // progress gets songs done and in all; done gets how many are FLAC now, how many stayed as they
+    // were, and whether it stopped short with the phone nearly full. Run by UpgradeService, which
+    // keeps the app alive meanwhile. False if one is running.
+    fun upgradeToLossless(progress: (done: Int, total: Int) -> Unit, done: (flac: Int, kept: Int, full: Boolean) -> Unit): Boolean {
         if (upgrade != null) return false
         val songs = list()
         upgrade = 0 to songs.size
@@ -106,8 +113,12 @@ object Downloads {
         executor.execute {
             var flac = 0
             var kept = 0
+            var full = false
             fun step(song: Song) {
-                if (runCatching { toFlac(song) }.getOrDefault(false)) flac++ else kept++
+                if (full) return
+                val result = runCatching { toFlac(song) }
+                full = result.exceptionOrNull() is NoSpace
+                if (result.getOrDefault(false)) flac++ else kept++
                 val count = flac + kept
                 main.post {
                     upgrade = count to songs.size
@@ -122,7 +133,7 @@ object Downloads {
             main.post {
                 upgrade = null
                 onChanged?.invoke()
-                done(flac, kept)
+                done(flac, kept, full)
             }
         }
         return true
@@ -199,20 +210,29 @@ object Downloads {
             saved != null -> "JioSaavn $saved kbps"
             else -> "JioSaavn"
         }
-        return if (lossless) "$what: non è sul server lossless" else what
+        return if (lossless) Lang.get(R.string.download_not_lossless, what) else what
     }
 
     // Null when the lossless server hasn't the song or doesn't answer.
     private fun fetchLossless(song: Song): String? {
         val found = Lossless.resolve(song.title, song.artist, song.seconds) {} ?: return null
         val file = audioFile(song.id)
-        save(found.url, file, headers = mapOf("User-Agent" to Lossless.UA))
+        try {
+            save(found.url, file, headers = mapOf("User-Agent" to Lossless.UA))
+        } catch (e: NoSpace) {
+            throw e
+        } catch (_: IOException) {
+            // The server's file broke off: the song's own source instead, and the server isn't asked
+            // about this song again for a while.
+            Lossless.failed(song.title, song.artist)
+            return null
+        }
         // Never the bytes the song streams: a song playing doesn't move onto this file mid-way.
         sources.remove(song.id)
         // What the file really is, FLAC or not: its size over its length.
         val length = found.seconds.takeIf { it > 0 } ?: song.seconds
         remember(song.copy(kbps = if (length > 0) (file.length() * 8 / length / 1000).toInt() else null))
-        return if (found.flac) found.label else "${found.label}, non FLAC"
+        return if (found.flac) found.label else Lang.get(R.string.not_flac, found.label)
     }
 
     // Keeps the online URL, so the song still plays anywhere it's saved if the file is deleted.
@@ -231,10 +251,11 @@ object Downloads {
             conn.useCaches = false
             headers.forEach { (name, value) -> conn.setRequestProperty(name, value) }
             if (ranged) conn.setRequestProperty("Range", "bytes=0-")
+            val expected = conn.contentLengthLong
+            if (dir.usableSpace - expected.coerceAtLeast(0) < RESERVE_BYTES) throw NoSpace()
             val written = conn.inputStream.use { input ->
                 part.outputStream().use { input.copyTo(it) }
             }
-            val expected = conn.contentLengthLong
             if (expected >= 0 && written != expected) throw IOException("truncated download")
             if (!part.renameTo(target)) throw IOException("rename failed")
         } finally {

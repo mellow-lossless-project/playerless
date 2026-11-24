@@ -13,9 +13,9 @@ function read(name) {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', name);
     xhr.onload = function () {
-      if (xhr.responseText) resolve(xhr.responseText); else reject(new Error('File vuoto: ' + name));
+      if (xhr.responseText) resolve(xhr.responseText); else reject(new Error('Empty file: ' + name));
     };
-    xhr.onerror = function () { reject(new Error('File mancante: ' + name)); };
+    xhr.onerror = function () { reject(new Error('Missing file: ' + name)); };
     xhr.send();
   });
 }
@@ -32,7 +32,7 @@ function load(prepared, player) {
   }).then(function (code) {
     var found = { n: null, sig: null };
     new Function('_result', code)(found);
-    if (typeof found.n !== 'function' || typeof found.sig !== 'function') throw new Error('Funzioni del player non trovate');
+    if (typeof found.n !== 'function' || typeof found.sig !== 'function') throw new Error('Player functions not found');
     solvers = found;
     return 'ok';
   });

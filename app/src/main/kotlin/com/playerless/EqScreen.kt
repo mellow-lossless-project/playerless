@@ -4,7 +4,6 @@ import android.view.View
 import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
-import java.util.Locale
 import kotlin.math.roundToInt
 
 private const val WIDTH_STEPS = 100
@@ -78,9 +77,9 @@ class EqScreen(view: View) {
     }
 
     private fun hz(hz: Double) =
-        if (hz < 1_000) String.format(Locale.ITALY, "%.0f Hz", hz) else String.format(Locale.ITALY, "%.1f kHz", hz / 1_000)
+        if (hz < 1_000) String.format(Lang.locale, "%.0f Hz", hz) else String.format(Lang.locale, "%.1f kHz", hz / 1_000)
 
-    private fun decibels(db: Double) = String.format(Locale.ITALY, "%+.1f dB", db)
+    private fun decibels(db: Double) = String.format(Lang.locale, "%+.1f dB", db)
 
-    private fun number(value: Double) = String.format(Locale.ITALY, "%.1f", value)
+    private fun number(value: Double) = String.format(Lang.locale, "%.1f", value)
 }

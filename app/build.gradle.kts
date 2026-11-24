@@ -10,13 +10,13 @@ android {
         applicationId = "com.playerless"
         minSdk = 26
         targetSdk = 29
-        versionCode = 15
-        versionName = "1.5"
+        versionCode = 16
+        versionName = "1.6"
     }
 
-    // Media3 ships strings for ~80 locales; keep only the ones we use.
+    // Media3 ships strings for ~80 locales; keep only the app's own, the ones in Lang.CHOICES.
     androidResources {
-        localeFilters += listOf("en", "it")
+        localeFilters += listOf("en", "it", "es", "fr", "de", "pt")
     }
 
     buildTypes {

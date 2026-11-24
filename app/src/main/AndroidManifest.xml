@@ -27,6 +27,13 @@
             </intent-filter>
         </activity>
 
+        <!-- Where Android answers about an update being installed, see Updater. Not exported: only
+             the app's own PendingIntent, handed to the installer, can reach it. -->
+        <activity-alias
+            android:name=".UpdateStatus"
+            android:exported="false"
+            android:targetActivity=".MainActivity" />
+
         <!-- For the desktop app's import over USB: only adb's shell holds DUMP. See ExportProvider. -->
         <provider
             android:name=".ExportProvider"

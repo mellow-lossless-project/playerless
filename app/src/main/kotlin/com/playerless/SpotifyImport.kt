@@ -51,7 +51,7 @@ object SpotifyImport {
         val file = File(dir, FILE)
         if (!file.exists()) return
         val app = context.applicationContext
-        progress = app.getString(R.string.import_starting)
+        progress = Lang.get(R.string.import_starting)
         onChanged?.invoke()
         Thread { run(app, dir, file) }.start()
     }
@@ -61,8 +61,8 @@ object SpotifyImport {
             parse(file.readText())
         } catch (e: Exception) {
             file.delete()
-            File(dir, REPORT).writeText("Il file di Spotify non si legge: ${e.message}\n")
-            main.post { finish(context, context.getString(R.string.import_failed, e.message)) }
+            File(dir, REPORT).writeText(Lang.get(R.string.report_unreadable, e.message.orEmpty()) + "\n")
+            main.post { finish(context, Lang.get(R.string.import_failed, e.message.orEmpty())) }
             return
         }
         // A crash halfway through mustn't import the same file at every start; the tool can run again.
@@ -82,7 +82,7 @@ object SpotifyImport {
                 val last = lastUpdate.get()
                 if (count == tracks.size || (now - last > UPDATE_MS && lastUpdate.compareAndSet(last, now))) {
                     File(dir, PROGRESS).writeText("$count/${tracks.size}")
-                    val text = context.getString(R.string.import_progress, count, tracks.size)
+                    val text = Lang.get(R.string.import_progress, count, tracks.size)
                     main.post {
                         progress = text
                         onChanged?.invoke()
@@ -103,16 +103,16 @@ object SpotifyImport {
         val matched = imports.sumOf { import -> import.tracks.count { it.key in found } }
         val fromYoutube = imports.sumOf { import -> import.tracks.count { found[it.key]?.let(YouTube::isYouTube) == true } }
         val report = buildString {
-            append("Playlist importate: ${playlists.size} su ${imports.size}\n")
-            append("Brani trovati: $matched su $total (JioSaavn ${matched - fromYoutube}, YouTube $fromYoutube)\n")
-            if (missing.isNotEmpty()) append("\nNon trovati:\n").append(missing)
+            append(Lang.get(R.string.report_playlists, playlists.size, imports.size)).append('\n')
+            append(Lang.get(R.string.report_songs, matched, total, matched - fromYoutube, fromYoutube)).append('\n')
+            if (missing.isNotEmpty()) append('\n').append(Lang.get(R.string.report_missing)).append('\n').append(missing)
         }
 
         main.post {
             playlists.forEach { (name, songs) -> Playlists.replace(name, songs) }
             File(dir, PROGRESS).delete()
             File(dir, REPORT).writeText(report)
-            finish(context, context.getString(R.string.import_done, playlists.size, matched, total))
+            finish(context, Lang.get(R.string.import_done, playlists.size, matched, total))
         }
     }
 

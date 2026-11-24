@@ -37,10 +37,10 @@ function parseChallenge(raw) {
 // Runs the challenge; answers with what GenerateIT expects.
 function start(raw) {
   var challenge = parseChallenge(raw);
-  if (!challenge.script) throw new Error('BotGuard senza interprete');
+  if (!challenge.script) throw new Error('BotGuard: no interpreter');
   new Function(challenge.script)();
   var vm = window[challenge.globalName];
-  if (!vm || !vm.a) throw new Error('BotGuard non caricato');
+  if (!vm || !vm.a) throw new Error('BotGuard not loaded');
 
   var snapshot = null;
   vm.a(challenge.program, function (asyncSnapshot) { snapshot = asyncSnapshot; }, true, undefined, function () {}, [[], []]);
@@ -52,7 +52,7 @@ function start(raw) {
         resolve();
       } else if ((waited += 10) > 10000) {
         clearInterval(timer);
-        reject(new Error('BotGuard non risponde'));
+        reject(new Error('BotGuard not answering'));
       }
     }, 10);
   }).then(function () {
@@ -66,9 +66,9 @@ function start(raw) {
 // The integrity token from GenerateIT unlocks the minter. Once only.
 function setToken(token) {
   var getMinter = signal && signal[0];
-  if (typeof getMinter !== 'function') throw new Error('BotGuard senza minter');
+  if (typeof getMinter !== 'function') throw new Error('BotGuard: no minter');
   return Promise.resolve(getMinter(fromBase64(token))).then(function (mint) {
-    if (typeof mint !== 'function') throw new Error('Minter non valido');
+    if (typeof mint !== 'function') throw new Error('Invalid minter');
     minter = mint;
     return 'ok';
   });
@@ -76,7 +76,7 @@ function setToken(token) {
 
 function mint(identifier) {
   return Promise.resolve(minter(new TextEncoder().encode(identifier))).then(function (bytes) {
-    if (!(bytes instanceof Uint8Array)) throw new Error('Gettone non valido');
+    if (!(bytes instanceof Uint8Array)) throw new Error('Invalid token');
     return toBase64(bytes);
   });
 }

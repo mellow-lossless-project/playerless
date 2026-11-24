@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
+import android.os.Binder
 import android.os.ParcelFileDescriptor
 import android.util.AtomicFile
 import org.json.JSONArray
@@ -15,15 +16,22 @@ import java.io.FileNotFoundException
 // Everything the desktop app imports, read over USB:
 //   adb exec-out content read --uri content://com.playerless.export/data
 //   adb exec-out content read --uri content://com.playerless.export/music/<file>
-// The manifest asks for DUMP, which adb's shell has and no installed app can get, so nothing on the
-// phone can read through here. Nothing is copied on the phone either: files go straight to the PC.
+// The manifest asks for DUMP, which adb's shell has; an app given DUMP by hand ("pm grant") is
+// still turned away below, so nothing on the phone can read through here. Nothing is copied on the phone either: files go straight to the PC.
+// adb's shell and root, in any user of the phone.
+private const val SHELL_UID = 2000
+private const val ROOT_UID = 0
+private const val PER_USER_UIDS = 100_000
+
 class ExportProvider : ContentProvider() {
     private val fileName = Regex("[A-Za-z0-9_-]+\\.(m4a|jpg)")
 
     override fun onCreate() = true
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
-        if (mode != "r") throw SecurityException("Sola lettura")
+        val caller = Binder.getCallingUid() % PER_USER_UIDS
+        if (caller != SHELL_UID && caller != ROOT_UID) throw SecurityException("adb only")
+        if (mode != "r") throw SecurityException("Read only")
         val context = context ?: throw FileNotFoundException()
         val path = uri.pathSegments
         val file = when {

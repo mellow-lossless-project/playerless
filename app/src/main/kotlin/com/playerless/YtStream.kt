@@ -44,7 +44,7 @@ object YtStream {
     // Blocking: call off the main thread. log gets each step, for the on-screen log.
     fun resolve(videoId: String, log: (String) -> Unit): Link {
         links[videoId]?.takeIf { it.expires > System.currentTimeMillis() }?.let { return it }
-        log("Chiedo il brano a YouTube")
+        log(Lang.get(R.string.yt_asking))
         val visitor = YouTube.visitorData()
         val link = (if (vrRefused) null else fromVr(videoId, visitor, log)) ?: fromWeb(videoId, visitor, log, firstTry = true)
         links[videoId] = link
@@ -76,11 +76,11 @@ object YtStream {
         val format = response?.takeIf { status(it) == "OK" }?.let(::audioFormat)
         val url = format?.optString("url").orEmpty()
         if (url.isNotEmpty()) {
-            log("Verifico il link")
+            log(Lang.get(R.string.yt_checking_link))
             if (works(url, format!!)) return link(url, format, response)
         }
         vrRefused = true
-        log("Client VR bloccato, uso il web")
+        log(Lang.get(R.string.yt_vr_blocked))
         return null
     }
 
@@ -91,33 +91,33 @@ object YtStream {
         val response = YouTube.player(YouTube.Client.WEB_REMIX, videoId, visitor, player.signatureTimestamp)
         if (status(response) != "OK") {
             val reason = response.optJSONObject("playabilityStatus")?.optString("reason").orEmpty()
-            throw YtException(reason.ifEmpty { "YouTube non dà questo brano" })
+            throw YtException(reason.ifEmpty { Lang.get(R.string.yt_unavailable) })
         }
-        val format = audioFormat(response) ?: throw YtException("Nessun audio per questo brano")
+        val format = audioFormat(response) ?: throw YtException(Lang.get(R.string.yt_no_audio))
 
-        log("Decifro il link")
+        log(Lang.get(R.string.yt_deciphering))
         val cipher = query(format.optString("signatureCipher"))
         var url = format.optString("url").ifEmpty { cipher["url"].orEmpty() }
-        if (url.isEmpty()) throw YtException("Link mancante")
+        if (url.isEmpty()) throw YtException(Lang.get(R.string.yt_missing_link))
         val n = Uri.parse(url).getQueryParameter("n")
         val signature = cipher["s"]
         val solved = JSONObject(player.page.call("solve(${JSONObject.quote(n.orEmpty())},${JSONObject.quote(signature.orEmpty())})"))
         if (n != null) {
             val newN = solved.optString("n")
-            if (newN.isEmpty() || newN == n || newN.startsWith("enhanced_except")) throw YtException("Decifratura fallita")
+            if (newN.isEmpty() || newN == n || newN.startsWith("enhanced_except")) throw YtException(Lang.get(R.string.yt_decipher_failed))
             url = url.replace(Regex("([?&])n=[^&]*"), "$1n=" + Regex.escapeReplacement(Uri.encode(newN)))
         }
         if (signature != null) url += "&${cipher["sp"] ?: "signature"}=${Uri.encode(solved.getString("sig"))}"
         url += "&pot=" + try {
             token.get()
         } catch (e: ExecutionException) {
-            throw e.cause as? IOException ?: YtException("Gettone non generato")
+            throw e.cause as? IOException ?: YtException(Lang.get(R.string.yt_no_token))
         }
 
-        log("Verifico il link")
+        log(Lang.get(R.string.yt_checking_link))
         if (works(url, format)) return link(url, format, response)
-        if (!firstTry) throw YtException("YouTube rifiuta il link")
-        log("Link rifiutato, riprovo")
+        if (!firstTry) throw YtException(Lang.get(R.string.yt_link_refused))
+        log(Lang.get(R.string.yt_link_retry))
         PoToken.forget()
         return fromWeb(videoId, visitor, log, firstTry = false)
     }

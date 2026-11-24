@@ -3,7 +3,6 @@ package com.playerless
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import java.util.Locale
 
 // What happens between pressing play and hearing the song, for the on-screen log. The playback
 // service and its loader threads write it, the activity shows it. Main thread only, except add().
@@ -48,7 +47,7 @@ object LoadLog {
     }
 
     fun fail(text: String) {
-        val line = line(elapsedMs, "Non riproducibile: $title ($text)")
+        val line = line(elapsedMs, Lang.get(R.string.log_failed, title, text))
         failure = line
         entries.add(line)
         loading = false
@@ -68,5 +67,5 @@ object LoadLog {
         return true
     }
 
-    private fun line(ms: Long, text: String) = String.format(Locale.ITALY, "%4.1f s  %s", ms / 1000.0, text)
+    private fun line(ms: Long, text: String) = String.format(Lang.locale, "%4.1f s  %s", ms / 1000.0, text)
 }

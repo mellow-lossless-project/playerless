@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The page behind it is set in code: the poster themes print theirs with grain. -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<com.playerless.PlayerColumn xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="?attr/pageColor"
@@ -36,6 +36,7 @@
 
     <!-- In the poster themes the cover is printed in two inks; a finger on it shows the real one. -->
     <com.playerless.SquareLayout
+        android:id="@+id/fullCoverBox"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="?attr/placeholderColor"
@@ -131,4 +132,4 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1" />
-</LinearLayout>
+</com.playerless.PlayerColumn>

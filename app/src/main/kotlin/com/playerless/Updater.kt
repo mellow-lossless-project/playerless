@@ -24,6 +24,8 @@ import java.util.concurrent.Executors
 // app is in front and nothing would be cut short: installing ends the app, its music and downloads.
 object Updater {
     const val ACTION_STATUS = "com.playerless.UPDATE_STATUS"
+    // The manifest's alias of MainActivity, not exported: no other app can send it an answer.
+    const val STATUS_ALIAS = "com.playerless.UpdateStatus"
     private const val REPO = "https://github.com/mellow-lossless-project/playerless"
     private const val APK = "Playerless.apk"
     private const val CHECK_MS = 6 * 3600_000L
@@ -98,30 +100,47 @@ object Updater {
     // comes back to MainActivity as ACTION_STATUS, see onStatus.
     fun install() {
         val file = ready ?: return
+        // Android may have cleared the cache since: fetched anew.
+        if (!file.exists()) {
+            ready = null
+            set(State.IDLE)
+            check()
+            return
+        }
         prefs.edit().putString("asked", available).putLong("asked_at", System.currentTimeMillis()).apply()
         executor.execute {
             val result = runCatching {
                 val installer = appContext.packageManager.packageInstaller
                 val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
                 params.setSize(file.length())
-                val session = installer.openSession(installer.createSession(params))
-                session.use {
-                    file.inputStream().use { input ->
-                        it.openWrite(APK, 0, file.length()).use { output ->
-                            input.copyTo(output)
-                            it.fsync(output)
+                val id = installer.createSession(params)
+                try {
+                    installer.openSession(id).use {
+                        file.inputStream().use { input ->
+                            it.openWrite(APK, 0, file.length()).use { output ->
+                                input.copyTo(output)
+                                it.fsync(output)
+                            }
                         }
+                        // Not immutable: Android writes the outcome into it.
+                        val status = Intent(ACTION_STATUS).setClassName(appContext.packageName, STATUS_ALIAS)
+                        it.commit(PendingIntent.getActivity(appContext, 1, status, PendingIntent.FLAG_UPDATE_CURRENT).intentSender)
                     }
-                    // Not immutable: Android writes the outcome into it.
-                    val status = Intent(appContext, MainActivity::class.java).setAction(ACTION_STATUS)
-                    it.commit(PendingIntent.getActivity(appContext, 1, status, PendingIntent.FLAG_UPDATE_CURRENT).intentSender)
+                } catch (e: Exception) {
+                    runCatching { installer.abandonSession(id) }
+                    throw e
                 }
             }
             result.onFailure { e ->
-                main.post { toast(appContext.getString(R.string.update_failed, e.message ?: e.javaClass.simpleName)) }
+                main.post { toast(Lang.get(R.string.update_failed, e.message ?: e.javaClass.simpleName)) }
             }
         }
     }
+
+    // Android's answer about an APK, through the alias only the installer reaches. Not when the app
+    // is reopened from the recent apps, which hands back the intent that first started it.
+    fun isStatus(intent: Intent?) = intent != null && intent.action == ACTION_STATUS &&
+        intent.component?.className == STATUS_ALIAS && intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY == 0
 
     // Main thread, from MainActivity: what Android did with the APK.
     fun onStatus(activity: Activity, intent: Intent) {
@@ -129,13 +148,13 @@ object Updater {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 @Suppress("DEPRECATION")
                 val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
-                if (confirm != null) activity.startActivity(confirm)
+                if (confirm != null) runCatching { activity.startActivity(confirm) }
             }
             // The new version replaces this one, which ends here. Turned down: see ASK_AGAIN_MS.
             PackageInstaller.STATUS_SUCCESS, PackageInstaller.STATUS_FAILURE_ABORTED -> Unit
             else -> {
                 val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: ""
-                toast(appContext.getString(R.string.update_failed, message))
+                toast(Lang.get(R.string.update_failed, message))
             }
         }
     }
@@ -143,6 +162,12 @@ object Updater {
     // On the executor. The APK of a newer release, downloaded; null when this one is the latest.
     private fun fetchLatest(): File? {
         val tag = latestTag() ?: throw IOException("no release")
+        // A release whose APK turned out not to be an update of this app (a wrong file, a version
+        // not raised) isn't fetched again at every start: only a newer tag is.
+        if (tag == prefs.getString("bad_tag", null)) {
+            main.post { available = null }
+            return null
+        }
         val dir = appContext.cacheDir
         val name = "update-${tag.replace(UNSAFE, "_")}.apk"
         // What a previous version downloaded for itself.
@@ -162,6 +187,7 @@ object Updater {
             download("$REPO/releases/download/$tag/$APK", file)
             if (!isUpdate(file)) {
                 file.delete()
+                prefs.edit().putString("bad_tag", tag).apply()
                 throw IOException("not an update of this app")
             }
         }

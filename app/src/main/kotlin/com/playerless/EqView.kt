@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
+import android.os.Build
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.GestureDetector
@@ -175,6 +177,12 @@ class EqView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
             canvas.drawCircle(xOf(p.hz), yOf(p.db), pointRadius, pointPaint)
             if (i == selected) canvas.drawCircle(xOf(p.hz), yOf(p.db), pointRadius + 4 * density, ringPaint)
         }
+    }
+
+    // With gesture navigation, a drag from a point near either edge isn't taken for "back".
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        if (changed && Build.VERSION.SDK_INT >= 29) systemGestureExclusionRects = listOf(Rect(0, 0, width, height))
     }
 
     // A tap is a click too, for accessibility services.

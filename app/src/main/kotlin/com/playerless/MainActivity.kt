@@ -3,6 +3,7 @@ package com.playerless
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
 import android.net.ConnectivityManager
@@ -10,6 +11,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Parcelable
 import android.text.SpannableString
 import android.text.SpannableStringBuilder
 import android.text.style.ForegroundColorSpan
@@ -32,12 +34,14 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
-import java.util.Locale
 import java.util.concurrent.Executors
 
 private const val MOST_PLAYED_COUNT = 2
 private const val KEY_SCREEN = "screen"
 private const val KEY_PLAYLIST = "playlist"
+private const val KEY_ARTIST_NAME = "artist_name"
+private const val KEY_ARTIST_ID = "artist_id"
+private const val KEY_ALBUM = "album"
 private const val LOG_DELAY_MS = 300L
 private const val LOG_TICK_MS = 100L
 private const val LOG_LINES = 8
@@ -47,18 +51,37 @@ private const val SEARCH_GRACE_MS = 1_500L
 // One search, both catalogs at once. Main thread only, except id, query and local.
 private class SearchRun(val id: Int, val query: String, val local: List<Song>) {
     var saavn: Result<List<Song>>? = null
-    var youtube: Result<List<Song>>? = null
+    var youtube: Result<YouTube.Found>? = null
     var waiting = false
     var warmed = false
     val complete get() = saavn != null && youtube != null
 }
 
+// An artist's page from YouTube Music, as the screen shows it: named at once, whole once loaded.
+// ref is null while the artist is only known by the name a song gives. Main thread only.
+private class ArtistView(val name: String, var ref: YouTube.ArtistRef?) {
+    var page: YouTube.ArtistPage? = null
+    var message: String? = null
+    val title get() = page?.name?.ifEmpty { null } ?: ref?.name ?: name
+}
+
+// An album's songs, from YouTube Music. Main thread only.
+private class AlbumView(val ref: YouTube.AlbumRef) {
+    var songs: List<Song> = emptyList()
+    var message: String? = null
+}
+
 class MainActivity : Activity() {
-    private enum class Screen { HOME, SEARCH, DOWNLOADS, PLAYLIST, SETTINGS, EQUALIZER }
+    private enum class Screen { HOME, SEARCH, DOWNLOADS, PLAYLIST, SETTINGS, EQUALIZER, ARTIST, ALBUM }
+
+    // What back returns to from an artist or an album: the screen it was opened from, scrolled as it was.
+    private class Place(val screen: Screen, val scroll: Parcelable?, val artist: ArtistView?, val album: AlbumView?)
 
     // JioSaavn's searches and YouTube's, one thread each, so a slow catalog never holds up the other.
     private val executor = Executors.newSingleThreadExecutor()
     private val youtubeSearch = Executors.newSingleThreadExecutor()
+    // Artist pages and albums, in the order they're asked for: a prefetch answers the tap after it.
+    private val pages = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private val logTick = Runnable { renderLog() }
 
@@ -82,6 +105,11 @@ class MainActivity : Activity() {
     private var playlistId: String? = null
     private var searchResults: List<Song> = emptyList()
     private var searchStatus: String? = null
+    // The artist the last search named, shown as the first row of its results.
+    private var searchArtist: YouTube.ArtistRef? = null
+    private var artistShown: ArtistView? = null
+    private var albumShown: AlbumView? = null
+    private val backStack = ArrayList<Place>()
     @Volatile private var searchId = 0
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
@@ -99,6 +127,9 @@ class MainActivity : Activity() {
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) = render()
     }
+
+    // The language picked in the settings, if any, before anything is inflated.
+    override fun attachBaseContext(base: Context) = super.attachBaseContext(Lang.wrap(base))
 
     override fun onCreate(savedInstanceState: Bundle?) {
         Settings.init(this)
@@ -177,9 +208,9 @@ class MainActivity : Activity() {
                 runSearch(query)
             }
         }
-        findViewById<View>(R.id.navHome).setOnClickListener { showScreen(Screen.HOME) }
-        findViewById<View>(R.id.navDownloads).setOnClickListener { showScreen(Screen.DOWNLOADS) }
-        findViewById<View>(R.id.navSettings).setOnClickListener { showScreen(Screen.SETTINGS) }
+        findViewById<View>(R.id.navHome).setOnClickListener { navigate(Screen.HOME) }
+        findViewById<View>(R.id.navDownloads).setOnClickListener { navigate(Screen.DOWNLOADS) }
+        findViewById<View>(R.id.navSettings).setOnClickListener { navigate(Screen.SETTINGS) }
         playAll.setOnClickListener { playAll(songAdapter.songs) }
         shuffleAll.setOnClickListener { playAll(songAdapter.songs.shuffled()) }
         findViewById<View>(R.id.prev).setOnClickListener { controller?.seekToPrevious() }
@@ -191,15 +222,30 @@ class MainActivity : Activity() {
         // Changing the accent restarts the activity; the settings screen should still be there.
         playlistId = savedInstanceState?.getString(KEY_PLAYLIST)
         showScreen(savedInstanceState?.getString(KEY_SCREEN)?.let(Screen::valueOf) ?: Screen.HOME)
+        savedInstanceState?.let(::reopen)
         connect()
         // Started by that answer. Not again when the activity is only rebuilt, e.g. for a new theme.
-        if (savedInstanceState == null && intent?.action == Updater.ACTION_STATUS) Updater.onStatus(this, intent)
+        if (savedInstanceState == null && Updater.isStatus(intent)) Updater.onStatus(this, intent)
+    }
+
+    // The artist or album that was open when the activity was rebuilt (a new font size, a fold, or
+    // Android ending the app in the background), opened again with home behind it.
+    private fun reopen(state: Bundle) {
+        val name = state.getString(KEY_ARTIST_NAME)
+        val album = state.getStringArray(KEY_ALBUM)
+        if (screen == Screen.ARTIST && name != null) {
+            screen = Screen.HOME
+            openArtist(name, state.getString(KEY_ARTIST_ID)?.let { YouTube.ArtistRef(it, name) })
+        } else if (screen == Screen.ALBUM && album != null && album.size == 4) {
+            screen = Screen.HOME
+            openAlbum(YouTube.AlbumRef(album[0], album[1], album[2], album[3]))
+        }
     }
 
     // Android's answer about an update being installed; see Updater.install.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.action == Updater.ACTION_STATUS) Updater.onStatus(this, intent)
+        if (Updater.isStatus(intent)) Updater.onStatus(this, intent)
     }
 
     // Bound for the whole life of the activity: a paused player stays alive after Media3 leaves the
@@ -221,14 +267,27 @@ class MainActivity : Activity() {
 
     override fun onRestoreInstanceState(state: Bundle) {
         super.onRestoreInstanceState(state)
-        // The EditText has its text back only now; the results didn't survive.
-        if (screen == Screen.SEARCH) runSearch(search.text.toString().trim())
+        // The EditText has its text back only now; the results didn't survive. Without a query
+        // there's nothing to search again: home.
+        if (screen == Screen.SEARCH) {
+            val query = search.text.toString().trim()
+            if (query.isEmpty()) showScreen(Screen.HOME) else runSearch(query)
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putString(KEY_SCREEN, screen.name)
         outState.putString(KEY_PLAYLIST, playlistId)
+        // An artist or an album open now opens again; YouTube's answer is still at hand if the
+        // process lives on.
+        artistShown?.takeIf { screen == Screen.ARTIST }?.let {
+            outState.putString(KEY_ARTIST_NAME, it.name)
+            outState.putString(KEY_ARTIST_ID, it.ref?.id)
+        }
+        albumShown?.takeIf { screen == Screen.ALBUM }?.ref?.let {
+            outState.putStringArray(KEY_ALBUM, arrayOf(it.id, it.title, it.year, it.image))
+        }
     }
 
     override fun onStart() {
@@ -283,6 +342,7 @@ class MainActivity : Activity() {
         main.removeCallbacks(logTick)
         executor.shutdown()
         youtubeSearch.shutdown()
+        pages.shutdown()
         super.onDestroy()
     }
 
@@ -291,10 +351,33 @@ class MainActivity : Activity() {
     override fun onBackPressed() {
         when {
             playerScreen?.isOpen == true -> playerScreen?.close()
+            goBack() -> Unit
             screen == Screen.HOME -> moveTaskToBack(true)
             screen == Screen.EQUALIZER -> showScreen(Screen.SETTINGS)
             else -> showScreen(Screen.HOME)
         }
+    }
+
+    // A tab of the bottom bar: a fresh start, with nothing to go back through.
+    private fun navigate(target: Screen) {
+        backStack.clear()
+        showScreen(target)
+    }
+
+    // Before opening an artist or an album: back returns here.
+    private fun leave() {
+        backStack += Place(screen, results.layoutManager?.onSaveInstanceState(), artistShown, albumShown)
+    }
+
+    private fun goBack(): Boolean {
+        val place = backStack.removeLastOrNull() ?: return false
+        screen = place.screen
+        artistShown = place.artist
+        albumShown = place.album
+        hideKeyboard()
+        refreshList()
+        place.scroll?.let { results.layoutManager?.onRestoreInstanceState(it) }
+        return true
     }
 
     private fun openPlayerScreen() {
@@ -350,6 +433,83 @@ class MainActivity : Activity() {
                     showSongs(playlist.name, playlist.songs, empty)
                 }
             }
+            // Rebuilt without them, e.g. after Android ended the app in the background: home.
+            Screen.ARTIST -> artistShown?.let { showItems(it.title, artistItems(it), it.message) } ?: showScreen(Screen.HOME)
+            Screen.ALBUM -> albumShown?.let { showSongs(it.ref.title, it.songs, it.message) } ?: showScreen(Screen.HOME)
+        }
+    }
+
+    // Each row of albums under its own title, e.g. "Album", then "Singoli ed EP".
+    private fun artistItems(shown: ArtistView): List<HomeItem> {
+        val page = shown.page ?: return emptyList()
+        return page.shelves.flatMap { shelf ->
+            listOf(HomeItem.Header(shelf.title)) + shelf.albums.map { album ->
+                val label = if (album.year.isEmpty()) album.title else getString(R.string.album_year, album.title, album.year)
+                HomeItem.Tile(label, Covers.big(album.image)) { openAlbum(album) }
+            }
+        }
+    }
+
+    // From the search's first row, or from a song's menu by the artist's name alone: YouTube Music
+    // is then asked who that is.
+    private fun openArtist(name: String, ref: YouTube.ArtistRef?) {
+        leave()
+        val shown = ArtistView(name, ref)
+        artistShown = shown
+        val cached = ref?.let { YouTube.cachedArtist(it.id) }
+        if (cached != null) {
+            shown.page = cached
+            shown.message = getString(R.string.no_albums).takeIf { cached.shelves.isEmpty() }
+            showScreen(Screen.ARTIST)
+            return
+        }
+        shown.message = getString(R.string.loading)
+        showScreen(Screen.ARTIST)
+        pages.execute {
+            val result = runCatching {
+                val found = shown.ref ?: YouTube.find(name).artist
+                found to found?.let { YouTube.artist(it.id) }
+            }
+            main.post {
+                val (found, page) = result.getOrNull() ?: (null to null)
+                if (found != null) shown.ref = found
+                shown.page = page
+                shown.message = when {
+                    result.isFailure -> getString(R.string.network_error)
+                    page == null -> getString(R.string.artist_not_found, name)
+                    page.shelves.isEmpty() -> getString(R.string.no_albums)
+                    else -> null
+                }
+                if (artistShown === shown && screen == Screen.ARTIST) refreshList()
+            }
+        }
+    }
+
+    private fun openAlbum(ref: YouTube.AlbumRef) {
+        leave()
+        val shown = AlbumView(ref)
+        albumShown = shown
+        // Its songs come from YouTube: its player gets ready while one is picked.
+        YtStream.warmUp()
+        val cached = YouTube.cachedAlbum(ref.id)
+        if (cached != null) {
+            shown.songs = cached
+            showScreen(Screen.ALBUM)
+            return
+        }
+        shown.message = getString(R.string.loading)
+        showScreen(Screen.ALBUM)
+        pages.execute {
+            val result = runCatching { YouTube.album(ref.id) }
+            main.post {
+                shown.songs = result.getOrNull().orEmpty()
+                shown.message = when {
+                    result.isFailure -> getString(R.string.network_error)
+                    shown.songs.isEmpty() -> getString(R.string.no_results)
+                    else -> null
+                }
+                if (albumShown === shown && screen == Screen.ALBUM) refreshList()
+            }
         }
     }
 
@@ -365,27 +525,34 @@ class MainActivity : Activity() {
         showHeader(getString(R.string.equalizer), null)
     }
 
-    private fun showItems(title: String?, items: List<HomeItem>) {
+    private fun showItems(title: String?, items: List<HomeItem>, message: String? = null) {
         if (results.adapter !== homeAdapter) results.swapAdapter(homeAdapter, true)
         homeAdapter.items = items
         // Half of the 20 dp gutter; each tile brings the other half as its margin.
         val padding = (10 * resources.displayMetrics.density).toInt()
         results.setPadding(padding, padding, padding, padding)
-        showHeader(title, null)
+        showHeader(title, message)
     }
 
     private fun showSongs(title: String?, songs: List<Song>, message: String?) {
         if (results.adapter !== songAdapter) results.swapAdapter(songAdapter, true)
-        songAdapter.songs = songs
+        songAdapter.show(songs, searchLead().takeIf { screen == Screen.SEARCH })
         results.setPadding(0, 0, 0, 0)
         showHeader(title, message)
+    }
+
+    // The artist the search named, above its songs; their picture once their page has come.
+    private fun searchLead(): Lead? {
+        val artist = searchArtist ?: return null
+        val image = YouTube.cachedArtist(artist.id)?.image.orEmpty()
+        return Lead(artist.name, getString(R.string.artist), image) { openArtist(artist.name, artist) }
     }
 
     private fun showHeader(title: String?, message: String?) {
         listTitle.text = title
         titleRow.visibility = if (title == null) View.GONE else View.VISIBLE
         // Downloads too: offline they are the whole library.
-        val canPlayAll = (screen == Screen.PLAYLIST || screen == Screen.DOWNLOADS) && message == null
+        val canPlayAll = (screen == Screen.PLAYLIST || screen == Screen.DOWNLOADS || screen == Screen.ALBUM) && message == null
         playAll.visibility = if (canPlayAll) View.VISIBLE else View.GONE
         shuffleAll.visibility = playAll.visibility
         status.text = message
@@ -424,6 +591,10 @@ class MainActivity : Activity() {
             HomeItem.Row(getString(R.string.audio_quality), qualityLabel(Settings.quality), ::chooseQuality),
             HomeItem.Row(getString(R.string.lossless_server), Settings.losslessServer, ::askLosslessServer)
                 .takeIf { Settings.lossless },
+            HomeItem.Row(getString(R.string.lossless_mobile), getString(if (Settings.losslessOnMobile) R.string.lossless_mobile_on else R.string.lossless_mobile_off)) {
+                Settings.losslessOnMobile = !Settings.losslessOnMobile
+                refreshList()
+            }.takeIf { Settings.lossless },
             HomeItem.Row(getString(R.string.lossless_upgrade), upgradeSummary(), ::confirmUpgrade)
                 .takeIf { Settings.lossless && Downloads.list().isNotEmpty() },
             HomeItem.Row(getString(R.string.equalizer), eqSummary) { showScreen(Screen.EQUALIZER) },
@@ -431,6 +602,7 @@ class MainActivity : Activity() {
             // The posters bring their own inks: the accent is the classic theme's.
             HomeItem.Row(getString(R.string.accent), getString(Settings.accent.label), ::chooseAccent)
                 .takeIf { Settings.look == Look.CLASSIC },
+            HomeItem.Row(getString(R.string.language), languageLabel(Settings.language), ::chooseLanguage),
             HomeItem.Row(getString(R.string.update), updateSummary()) {
                 if (Updater.state == Updater.State.READY) Updater.install() else Updater.check()
             },
@@ -475,6 +647,22 @@ class MainActivity : Activity() {
                 dialog.dismiss()
                 if (looks[which] == Settings.look) return@setSingleChoiceItems
                 Settings.look = looks[which]
+                recreate()
+            }
+            .show()
+    }
+
+    private fun languageLabel(tag: String) = if (tag.isEmpty()) getString(R.string.language_system) else Lang.name(tag)
+
+    // Like the theme, the whole screen is rebuilt in the new language.
+    private fun chooseLanguage() {
+        val tags = Lang.CHOICES
+        AlertDialog.Builder(this)
+            .setTitle(R.string.language)
+            .setSingleChoiceItems(tags.map(::languageLabel).toTypedArray(), tags.indexOf(Settings.language)) { dialog, which ->
+                dialog.dismiss()
+                if (tags[which] == Settings.language) return@setSingleChoiceItems
+                Settings.language = tags[which]
                 recreate()
             }
             .show()
@@ -565,7 +753,7 @@ class MainActivity : Activity() {
     private fun chooseDownloadQuality(song: Song) {
         val best = SaavnApi.kbpsOf(song.url)
         val choices = ArrayList<Pair<Int?, String>>()
-        choices += Lossless.KBPS to qualityLabel(Lossless.KBPS)
+        if (Lossless.SUPPORTED) choices += Lossless.KBPS to qualityLabel(Lossless.KBPS)
         when {
             YouTube.isYouTube(song) -> choices += null to getString(R.string.quality_youtube)
             best == null -> choices += null to getString(R.string.quality_saavn_stream)
@@ -578,6 +766,8 @@ class MainActivity : Activity() {
     }
 
     private fun songSubtitle(song: Song): String {
+        // An album is all YouTube: saying so on every row tells nothing.
+        if (screen == Screen.ALBUM) return song.artist
         if (screen != Screen.DOWNLOADS) {
             return if (YouTube.isYouTube(song)) getString(R.string.from_youtube, song.artist) else song.artist
         }
@@ -587,20 +777,21 @@ class MainActivity : Activity() {
 
     private fun showSongMenu(song: Song) {
         val openPlaylist = playlistId.takeIf { screen == Screen.PLAYLIST }
+        // The first artist a song credits: "Lazza, Sfera Ebbasta" is Lazza's.
+        val artist = song.artist.substringBefore(',').trim()
         val items = listOfNotNull(
-            getString(R.string.add_to_playlist),
-            getString(R.string.remove_from_playlist).takeIf { openPlaylist != null },
+            getString(R.string.add_to_playlist) to { choosePlaylist(song) },
+            openPlaylist?.let {
+                getString(R.string.remove_from_playlist) to {
+                    Playlists.remove(it, song)
+                    refreshList()
+                }
+            },
+            artist.takeIf { it.isNotEmpty() }?.let { getString(R.string.go_to_artist, it) to { openArtist(it, null) } },
         )
         AlertDialog.Builder(this)
             .setTitle(song.title)
-            .setItems(items.toTypedArray()) { _, which ->
-                if (which == 0) {
-                    choosePlaylist(song)
-                } else if (openPlaylist != null) {
-                    Playlists.remove(openPlaylist, song)
-                    refreshList()
-                }
-            }
+            .setItems(items.map { it.first }.toTypedArray()) { _, which -> items[which].second() }
             .show()
     }
 
@@ -686,7 +877,9 @@ class MainActivity : Activity() {
         // Downloaded songs show up at once and keep working without a network.
         val local = Downloads.search(query)
         searchResults = local
+        searchArtist = null
         searchStatus = getString(R.string.searching).takeIf { local.isEmpty() }
+        backStack.clear()
         showScreen(Screen.SEARCH)
 
         // Both catalogs at once, each on its own thread. A search typed meanwhile skips the queue.
@@ -701,7 +894,7 @@ class MainActivity : Activity() {
         }
         youtubeSearch.execute {
             if (run.id != searchId) return@execute
-            val found = runCatching { YouTube.search(query) }
+            val found = runCatching { YouTube.find(query) }
             main.post {
                 run.youtube = found
                 arrived(run)
@@ -725,9 +918,14 @@ class MainActivity : Activity() {
         if (run.id != searchId || isDestroyed) return
         val saavn = run.saavn
         val youtube = run.youtube
-        val found = merge(run.query, saavn?.getOrNull().orEmpty(), youtube?.getOrNull().orEmpty())
+        val found = merge(run.query, saavn?.getOrNull().orEmpty(), youtube?.getOrNull()?.songs.orEmpty())
         val localIds = run.local.mapTo(HashSet()) { it.id }
         searchResults = run.local + found.filterNot { it.id in localIds }
+        val artist = youtube?.getOrNull()?.artist
+        if (artist != null && artist.id != searchArtist?.id) {
+            searchArtist = artist
+            prefetchArtist(artist)
+        }
         val failed = saavn?.isFailure == true && youtube?.isFailure == true
         searchStatus = when {
             searchResults.isNotEmpty() -> null
@@ -739,6 +937,16 @@ class MainActivity : Activity() {
         if (!run.warmed && found.any(YouTube::isYouTube)) {
             run.warmed = true
             YtStream.warmUp()
+        }
+    }
+
+    // Whoever searches an artist likely opens them: their page comes meanwhile, and with it the
+    // picture for the search's first row.
+    private fun prefetchArtist(artist: YouTube.ArtistRef) {
+        if (YouTube.cachedArtist(artist.id) != null) return
+        pages.execute {
+            if (runCatching { YouTube.artist(artist.id) }.isFailure) return@execute
+            main.post { if (screen == Screen.SEARCH && searchArtist === artist && !isDestroyed) refreshList() }
         }
     }
 
@@ -771,7 +979,7 @@ class MainActivity : Activity() {
         }
         val text = SpannableStringBuilder()
         if (LoadLog.loading) {
-            val seconds = String.format(Locale.ITALY, "%.1f", LoadLog.elapsedMs / 1000.0)
+            val seconds = String.format(Lang.locale, "%.1f", LoadLog.elapsedMs / 1000.0)
             text.append(getString(R.string.loading_song, LoadLog.title, seconds), ForegroundColorSpan(skin.panelTextTitle), 0)
         }
         val lines = LoadLog.lines.takeLast(LOG_LINES)

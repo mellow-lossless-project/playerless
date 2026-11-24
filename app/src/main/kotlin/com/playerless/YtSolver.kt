@@ -35,11 +35,11 @@ object YtSolver {
         val stale = System.currentTimeMillis() - prefs.getLong("player_checked", 0) > CHECK_EVERY_MS
         if (hash == null || refresh || stale || !File(dir, "player-$hash.js").exists()) {
             val iframe = Http.get("https://www.youtube.com/iframe_api", mapOf("User-Agent" to YouTube.WEB_UA))
-            val current = HASH.find(iframe)?.groupValues?.get(1) ?: throw YtException("Versione del player sconosciuta")
+            val current = HASH.find(iframe)?.groupValues?.get(1) ?: throw YtException(Lang.get(R.string.yt_player_unknown))
             if (current != hash || !File(dir, "player-$current.js").exists()) {
-                log("Scarico il player di YouTube")
+                log(Lang.get(R.string.yt_player_download))
                 val code = Http.get(PLAYER_URL.format(current), mapOf("User-Agent" to YouTube.WEB_UA))
-                sts = STS.find(code)?.groupValues?.get(1)?.toInt() ?: throw YtException("Player di YouTube non riconosciuto")
+                sts = STS.find(code)?.groupValues?.get(1)?.toInt() ?: throw YtException(Lang.get(R.string.yt_player_unreadable))
                 dir.listFiles()?.forEach { if (it.name.startsWith("player-") || it.name.startsWith("prep-")) it.delete() }
                 File(dir, "player-$current.js").writeText(code)
                 hash = current
@@ -62,7 +62,7 @@ object YtSolver {
         }
         val prepared = File(dir, "prep-$hash.js")
         // Preparing a new player takes seconds; the line says why the wait is longer.
-        log(if (prepared.exists()) "Avvio il decifratore" else "Preparo il decifratore (1ª volta)")
+        log(Lang.get(if (prepared.exists()) R.string.yt_solver_start else R.string.yt_solver_prepare))
         val html = context.assets.open("yt/solver.html").bufferedReader().use { it.readText() }
         // Written aside and renamed, so a half-written file can't break the next start.
         val created = JsPage.open(context, "file://${dir.path}/", html) { text ->
@@ -75,7 +75,7 @@ object YtSolver {
         } catch (e: YtException) {
             created.close()
             prepared.delete()
-            broken = "Decifratore: ${e.message}"
+            broken = Lang.get(R.string.yt_solver_failed, e.message.orEmpty())
             brokenHash = hash
             brokenUntil = System.currentTimeMillis() + RETRY_BROKEN_MS
             throw YtException(broken!!)

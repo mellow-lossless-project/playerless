@@ -24,10 +24,10 @@ enum class Look(val label: Int, val theme: Int) {
 
 object Settings {
     // Best first: lossless, then JioSaavn's renditions. YouTube always streams its best, Opus at
-    // about 130 kbps. Lossless unless chosen otherwise: a song never waits on it more than a few
-    // seconds (see PlaybackService).
-    val QUALITIES = listOf(Lossless.KBPS, 320, 160, 96)
-    const val DEFAULT_QUALITY = Lossless.KBPS
+    // about 130 kbps. Lossless unless chosen otherwise, where the phone decodes FLAC: a song never
+    // waits on it more than a few seconds (see PlaybackService).
+    val QUALITIES = if (Lossless.SUPPORTED) listOf(Lossless.KBPS, 320, 160, 96) else listOf(320, 160, 96)
+    val DEFAULT_QUALITY = QUALITIES[0]
 
     private lateinit var prefs: SharedPreferences
 
@@ -40,6 +40,11 @@ object Settings {
         set(value) = prefs.edit().putInt("quality", value).apply()
 
     val lossless: Boolean get() = quality == Lossless.KBPS
+
+    // A song in FLAC is 25-40 MB: on a metered network, mobile data, only when allowed here.
+    var losslessOnMobile: Boolean
+        get() = prefs.getBoolean("lossless_mobile", false)
+        set(value) = prefs.edit().putBoolean("lossless_mobile", value).apply()
 
     var losslessServer: String
         get() = prefs.getString("lossless_server", null) ?: Lossless.DEFAULT_SERVER
@@ -58,4 +63,12 @@ object Settings {
 
     // The theme the activity wears: the look, and in the classic one the accent too.
     val theme: Int get() = look.let { if (it == Look.CLASSIC) accent.theme else it.theme }
+
+    // A language tag from Lang.CHOICES; empty for the phone's language.
+    var language: String
+        get() = prefs.getString("language", null)?.takeIf { it in Lang.CHOICES } ?: ""
+        set(value) {
+            prefs.edit().putString("language", value).apply()
+            Lang.reset()
+        }
 }

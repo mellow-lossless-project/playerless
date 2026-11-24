@@ -35,7 +35,7 @@ object PlayStats {
     private fun save() {
         val json = JSONArray()
         entries.forEach { json.put(it.song.toJson().put("plays", it.plays)) }
-        file.writeText(json.toString())
+        Disk.write(file, json.toString())
     }
 
     private fun read(): List<Entry> = file.readJson { text ->

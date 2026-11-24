@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 
 private const val CHANNEL = "downloads"
@@ -17,6 +18,8 @@ private const val DONE_ID = 3
 //   adb shell am start-foreground-service -n com.playerless/.UpgradeService
 class UpgradeService : Service() {
     private lateinit var notifications: NotificationManager
+
+    override fun attachBaseContext(base: Context) = super.attachBaseContext(Lang.wrap(base))
 
     override fun onCreate() {
         super.onCreate()
@@ -35,9 +38,10 @@ class UpgradeService : Service() {
             progress = { done, total ->
                 notifications.notify(RUNNING_ID, notification(getString(R.string.lossless_upgrade_running, done, total), ongoing = true))
             },
-            done = { flac, kept ->
+            done = { flac, kept, full ->
                 stopForeground(STOP_FOREGROUND_REMOVE)
-                notifications.notify(DONE_ID, notification(getString(R.string.lossless_upgrade_done, flac, kept), ongoing = false))
+                val text = if (full) getString(R.string.lossless_upgrade_no_space, flac) else getString(R.string.lossless_upgrade_done, flac, kept)
+                notifications.notify(DONE_ID, notification(text, ongoing = false))
                 stopSelf()
             },
         )

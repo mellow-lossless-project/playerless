@@ -2,9 +2,11 @@ package com.playerless
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.LruCache
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.util.Locale
 
 // A YouTube failure the player shouldn't retry, with a message for the on-screen log.
 class YtException(message: String) : IOException(message)
@@ -18,6 +20,7 @@ object YouTube {
     private const val SONGS_ONLY = "EgWKAQIIAWoKEAkQBRAKEAMQBA=="
     private val COVER_SIZE = Regex("=w\\d+-h\\d+")
     private val DURATION = Regex("\\d+(:\\d{2}){1,2}")
+    private val YEAR = Regex("\\b(19|20)\\d{2}\\b")
     private val VISITOR = Regex("\"(Cg[ts][A-Za-z0-9%_-]{20,})\"")
 
     enum class Client(
@@ -54,13 +57,34 @@ object YouTube {
     fun visitorData(): String {
         prefs.getString("visitor", null)?.let { return it }
         val page = Http.get("$ORIGIN/sw.js_data", mapOf("User-Agent" to WEB_UA))
-        val visitor = VISITOR.find(page)?.groupValues?.get(1) ?: throw YtException("YouTube non ha dato un visitorData")
+        val visitor = VISITOR.find(page)?.groupValues?.get(1) ?: throw YtException(Lang.get(R.string.yt_no_visitor))
         prefs.edit().putString("visitor", visitor).apply()
         return visitor
     }
 
+    // An artist as songs credit them: their YouTube Music page and their name.
+    class ArtistRef(val id: String, val name: String)
+
+    // A search's songs, and the artist the query names, when it names one exactly.
+    class Found(val songs: List<Song>, val artist: ArtistRef?)
+
+    // An album or a single on an artist's page. year is empty when YouTube doesn't say.
+    class AlbumRef(val id: String, val title: String, val year: String, val image: String)
+
+    // A row of albums on an artist's page, under YouTube's own title for it, e.g. "Singoli ed EP".
+    class Shelf(val title: String, val albums: List<AlbumRef>)
+
+    class ArtistPage(val id: String, val name: String, val image: String, val shelves: List<Shelf>)
+
+    // Artist pages and albums seen in this run, so going back and forth asks YouTube once.
+    private val pages = LruCache<String, Any>(24)
+
     // Blocking: call off the main thread.
-    fun search(query: String): List<Song> {
+    fun search(query: String): List<Song> = find(query).songs
+
+    // Blocking. The artist is the one whose name is the whole query, as the songs credit them; when
+    // two artists share the name, the one most of the songs are by.
+    fun find(query: String): Found {
         val body = JSONObject()
             .put("context", context(Client.WEB_REMIX, prefs.getString("visitor", null)))
             .put("query", query)
@@ -70,20 +94,159 @@ object YouTube {
         // A search hands out a visitor id too, which saves fetching one at the first play.
         val visitor = json.optJSONObject("responseContext")?.optString("visitorData").orEmpty()
         if (visitor.isNotEmpty() && !prefs.contains("visitor")) prefs.edit().putString("visitor", visitor).apply()
+        return parseFind(json, query)
+    }
 
+    // The parsing below takes YouTube's answers as they come and asks nothing of the network, so it
+    // can be checked against saved answers.
+    internal fun parseFind(json: JSONObject, query: String): Found {
         val sections = json.optJSONObject("contents")
             ?.optJSONObject("tabbedSearchResultsRenderer")?.optJSONArray("tabs")?.optJSONObject(0)
             ?.optJSONObject("tabRenderer")?.optJSONObject("content")
-            ?.optJSONObject("sectionListRenderer")?.optJSONArray("contents") ?: return emptyList()
+            ?.optJSONObject("sectionListRenderer")?.optJSONArray("contents") ?: return Found(emptyList(), null)
+        val wanted = Match.normalize(query).replace(" ", "")
+        val credits = LinkedHashMap<String, Int>()
+        val names = HashMap<String, String>()
         val songs = ArrayList<Song>()
         for (i in 0 until sections.length()) {
             val items = sections.optJSONObject(i)?.optJSONObject("musicShelfRenderer")?.optJSONArray("contents") ?: continue
             for (j in 0 until items.length()) {
-                items.optJSONObject(j)?.optJSONObject("musicResponsiveListItemRenderer")?.let(::parseSong)?.let(songs::add)
+                val item = items.optJSONObject(j)?.optJSONObject("musicResponsiveListItemRenderer") ?: continue
+                parseSong(item)?.let(songs::add)
+                for (run in artistRuns(runs(item.optJSONArray("flexColumns"), 1))) {
+                    val name = run.optString("text")
+                    val id = browseOf(run)?.optString("browseId").orEmpty()
+                    if (id.isEmpty() || wanted.isEmpty() || Match.normalize(name).replace(" ", "") != wanted) continue
+                    credits[id] = (credits[id] ?: 0) + 1
+                    names.getOrPut(id) { name }
+                }
             }
         }
-        return Match.oneEach(songs)
+        // Ties go to the first one credited, as the map keeps its order.
+        val artist = credits.entries.maxByOrNull { it.value }?.key?.let { ArtistRef(it, names.getValue(it)) }
+        return Found(Match.oneEach(songs), artist)
     }
+
+    fun cachedArtist(id: String): ArtistPage? = pages.get(id) as? ArtistPage
+
+    // Blocking. Every row of albums on the artist's page, whole: the page shows ten of a row and
+    // keeps the rest, newest first and up to a hundred, behind the row's "more" link.
+    fun artist(id: String): ArtistPage {
+        cachedArtist(id)?.let { return it }
+        val page = parseArtist(id, browse(JSONObject().put("browseId", id))) { runCatching { grid(it) }.getOrNull() }
+        pages.put(id, page)
+        return page
+    }
+
+    // more: the whole row behind a "more" link, null when it can't be had.
+    internal fun parseArtist(id: String, json: JSONObject, more: (JSONObject) -> List<AlbumRef>?): ArtistPage {
+        val header = json.optJSONObject("header")?.let {
+            it.optJSONObject("musicImmersiveHeaderRenderer") ?: it.optJSONObject("musicVisualHeaderRenderer")
+        }
+        val sections = json.optJSONObject("contents")?.optJSONObject("singleColumnBrowseResultsRenderer")
+            ?.optJSONArray("tabs")?.optJSONObject(0)?.optJSONObject("tabRenderer")?.optJSONObject("content")
+            ?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")
+        val shelves = ArrayList<Shelf>()
+        for (i in 0 until (sections?.length() ?: 0)) {
+            val shelf = sections!!.optJSONObject(i)?.optJSONObject("musicCarouselShelfRenderer") ?: continue
+            // Songs, videos, playlists and other artists have rows too: only albums are kept.
+            var albums = albums(shelf.optJSONArray("contents"))
+            if (albums.isEmpty()) continue
+            val head = shelf.optJSONObject("header")?.optJSONObject("musicCarouselShelfBasicHeaderRenderer")
+            val link = head?.optJSONObject("moreContentButton")?.optJSONObject("buttonRenderer")
+                ?.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
+            if (link != null) more(link)?.takeIf { it.size > albums.size }?.let { albums = it }
+            shelves += Shelf(text(head?.optJSONObject("title")), albums)
+        }
+        // The page's picture is a wide banner; asked for square, the server crops it.
+        val image = thumbnail(header?.optJSONObject("foregroundThumbnail") ?: header?.optJSONObject("thumbnail"))
+        return ArtistPage(id, text(header?.optJSONObject("title")), image, shelves)
+    }
+
+    fun cachedAlbum(id: String): List<Song>? {
+        @Suppress("UNCHECKED_CAST")
+        return pages.get(id) as? List<Song>
+    }
+
+    // Blocking. An album's songs in order, each with the album's cover. Songs YouTube greys out,
+    // which have no video, are left out.
+    fun album(id: String): List<Song> {
+        cachedAlbum(id)?.let { return it }
+        val songs = parseAlbum(browse(JSONObject().put("browseId", id)))
+        if (songs.isNotEmpty()) pages.put(id, songs)
+        return songs
+    }
+
+    internal fun parseAlbum(json: JSONObject): List<Song> {
+        val two = json.optJSONObject("contents")?.optJSONObject("twoColumnBrowseResultsRenderer")
+        val header = two?.optJSONArray("tabs")?.optJSONObject(0)?.optJSONObject("tabRenderer")?.optJSONObject("content")
+            ?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")?.optJSONObject(0)
+            ?.optJSONObject("musicResponsiveHeaderRenderer")
+        val cover = thumbnail(header?.optJSONObject("thumbnail"))
+        val albumArtist = artistRuns(header?.optJSONObject("straplineTextOne")?.optJSONArray("runs"))
+            .joinToString(", ") { it.optString("text") }
+        val rows = two?.optJSONObject("secondaryContents")?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")
+            ?.optJSONObject(0)?.optJSONObject("musicShelfRenderer")?.optJSONArray("contents")
+        return (0 until (rows?.length() ?: 0)).mapNotNull { i ->
+            val row = rows!!.optJSONObject(i)?.optJSONObject("musicResponsiveListItemRenderer") ?: return@mapNotNull null
+            val song = parseSong(row) ?: return@mapNotNull null
+            // An album's rows have no picture of their own, and the length in a column apart.
+            val length = row.optJSONArray("fixedColumns")?.optJSONObject(0)
+                ?.optJSONObject("musicResponsiveListItemFixedColumnRenderer")?.optJSONObject("text")
+            song.copy(
+                artist = song.artist.ifEmpty { albumArtist },
+                image = song.image.ifEmpty { cover },
+                seconds = song.seconds.takeIf { it > 0 } ?: seconds(text(length)) ?: 0,
+            )
+        }
+    }
+
+    // The full row behind a "more" link: a grid of albums.
+    private fun grid(endpoint: JSONObject): List<AlbumRef> {
+        val body = JSONObject().put("browseId", endpoint.optString("browseId"))
+        endpoint.optString("params").takeIf { it.isNotEmpty() }?.let { body.put("params", it) }
+        return parseGrid(browse(body))
+    }
+
+    internal fun parseGrid(json: JSONObject): List<AlbumRef> = albums(
+        json.optJSONObject("contents")?.optJSONObject("singleColumnBrowseResultsRenderer")
+            ?.optJSONArray("tabs")?.optJSONObject(0)?.optJSONObject("tabRenderer")?.optJSONObject("content")
+            ?.optJSONObject("sectionListRenderer")?.optJSONArray("contents")?.optJSONObject(0)
+            ?.optJSONObject("gridRenderer")?.optJSONArray("items"),
+    )
+
+    private fun albums(items: JSONArray?): List<AlbumRef> = (0 until (items?.length() ?: 0)).mapNotNull { i ->
+        val item = items!!.optJSONObject(i)?.optJSONObject("musicTwoRowItemRenderer") ?: return@mapNotNull null
+        val target = item.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint") ?: return@mapNotNull null
+        if (pageTypeOf(target) != "MUSIC_PAGE_TYPE_ALBUM") return@mapNotNull null
+        AlbumRef(
+            id = target.optString("browseId").ifEmpty { return@mapNotNull null },
+            title = text(item.optJSONObject("title")),
+            // "2024", or "Singolo • 2024" in the language asked for.
+            year = YEAR.findAll(text(item.optJSONObject("subtitle"))).lastOrNull()?.value.orEmpty(),
+            image = thumbnail(item.optJSONObject("thumbnailRenderer")),
+        )
+    }
+
+    private fun browse(body: JSONObject): JSONObject {
+        body.put("context", context(Client.WEB_REMIX, prefs.getString("visitor", null)))
+        return JSONObject(Http.post("${Client.WEB_REMIX.api}browse?prettyPrint=false", body.toString(), headers(Client.WEB_REMIX, null)))
+    }
+
+    // The largest picture, asked for at the size of a row: 150, as JioSaavn's.
+    private fun thumbnail(renderer: JSONObject?): String {
+        val thumbnails = renderer?.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+        val url = thumbnails?.optJSONObject(thumbnails.length() - 1)?.optString("url").orEmpty()
+        return url.replace(COVER_SIZE, "=w150-h150")
+    }
+
+    private fun text(formatted: JSONObject?): String {
+        val runs = formatted?.optJSONArray("runs") ?: return ""
+        return (0 until runs.length()).joinToString("") { runs.optJSONObject(it)?.optString("text").orEmpty() }
+    }
+
+    private fun artistRuns(runs: JSONArray?): List<JSONObject> =
+        (0 until (runs?.length() ?: 0)).mapNotNull { runs!!.optJSONObject(it) }.filter { pageType(it) == "MUSIC_PAGE_TYPE_ARTIST" }
 
     // Blocking. The answer to "how do I play this video", streams included.
     fun player(client: Client, videoId: String, visitor: String, signatureTimestamp: Int?): JSONObject {
@@ -101,12 +264,14 @@ object YouTube {
         return JSONObject(Http.post("${client.api}player?prettyPrint=false", body.toString(), headers(client, visitor)))
     }
 
+    // hl: the app's language, which YouTube writes its titles in ("Singles & EPs"). gl: the phone's
+    // country, which weighs on what the search ranks first.
     private fun context(client: Client, visitor: String?): JSONObject {
         val info = JSONObject()
             .put("clientName", client.clientName)
             .put("clientVersion", client.version)
-            .put("hl", "it")
-            .put("gl", "IT")
+            .put("hl", Lang.locale.language.ifEmpty { "en" })
+            .put("gl", Locale.getDefault().country.ifEmpty { "US" })
         if (visitor != null) info.put("visitorData", visitor)
         if (client == Client.ANDROID_VR) {
             info.put("deviceMake", "Oculus")
@@ -170,7 +335,10 @@ object YouTube {
     private fun runs(columns: JSONArray?, index: Int): JSONArray? = columns?.optJSONObject(index)
         ?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")?.optJSONObject("text")?.optJSONArray("runs")
 
-    private fun pageType(run: JSONObject): String? = run.optJSONObject("navigationEndpoint")
-        ?.optJSONObject("browseEndpoint")?.optJSONObject("browseEndpointContextSupportedConfigs")
+    private fun browseOf(run: JSONObject): JSONObject? = run.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
+
+    private fun pageType(run: JSONObject): String? = browseOf(run)?.let(::pageTypeOf)
+
+    private fun pageTypeOf(browse: JSONObject): String? = browse.optJSONObject("browseEndpointContextSupportedConfigs")
         ?.optJSONObject("browseEndpointContextMusicConfig")?.optString("pageType")
 }

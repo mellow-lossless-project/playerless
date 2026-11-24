@@ -20,6 +20,7 @@ object Playlists {
         private set
 
     fun init(context: Context) {
+        if (::file.isInitialized) return
         file = AtomicFile(File(context.filesDir, "playlists.json"))
         all = read()
     }
@@ -73,7 +74,7 @@ object Playlists {
                     .put("songs", songs),
             )
         }
-        file.writeText(json.toString())
+        Disk.write(file, json.toString())
     }
 
     private fun read(): List<Playlist> = file.readJson { text ->

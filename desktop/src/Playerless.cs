@@ -79,8 +79,10 @@ namespace Playerless
             try { if (File.Exists(logFile) && new FileInfo(logFile).Length > 1 << 20) File.Delete(logFile); } catch (IOException) { }
             AppDomain.CurrentDomain.UnhandledException += (sender, e) => Log("Errore non gestito: " + e.ExceptionObject);
 
-            // Built without an app.config, .NET would offer only TLS 1.0.
-            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | (SecurityProtocolType)12288; // TLS 1.3
+            // Built without an app.config, .NET would offer only TLS 1.0. TLS 1.3 needs .NET 4.8: an
+            // older one (Windows 10 LTSC 2019) refuses it, and keeps TLS 1.2 alone.
+            try { ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | (SecurityProtocolType)12288; }
+            catch (Exception) { ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12; }
             ServicePointManager.DefaultConnectionLimit = 32;
             ServicePointManager.Expect100Continue = false;
 

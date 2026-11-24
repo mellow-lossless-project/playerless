@@ -59,7 +59,7 @@ class JsPage private constructor(context: Context, private val onSave: ((String)
             // Unhandled, a killed renderer takes the whole app down with it, music included.
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
                 dead = true
-                calls.keys.forEach { finish(it, null, "WebView chiusa da Android") }
+                calls.keys.forEach { finish(it, null, Lang.get(R.string.webview_killed)) }
                 view.destroy()
                 return true
             }
@@ -89,7 +89,7 @@ class JsPage private constructor(context: Context, private val onSave: ((String)
 
     // Evaluates a JavaScript expression, waiting for it if it's a promise.
     fun call(expression: String, timeoutMs: Long = 30_000): String {
-        if (dead) throw YtException("WebView chiusa da Android")
+        if (dead) throw YtException(Lang.get(R.string.webview_killed))
         val id = ids.incrementAndGet()
         val call = Call()
         calls[id] = call
@@ -97,7 +97,7 @@ class JsPage private constructor(context: Context, private val onSave: ((String)
             ".then(function(r){Bridge.done($id,String(r))},function(e){Bridge.fail($id,String(e&&e.message||e))})"
         main.post { if (!dead) web.evaluateJavascript(js, null) }
         try {
-            if (!call.done.await(timeoutMs, TimeUnit.MILLISECONDS)) throw YtException("JavaScript non risponde")
+            if (!call.done.await(timeoutMs, TimeUnit.MILLISECONDS)) throw YtException(Lang.get(R.string.js_timeout))
         } finally {
             calls.remove(id)
         }
@@ -128,11 +128,11 @@ class JsPage private constructor(context: Context, private val onSave: ((String)
                 }
                 created.countDown()
             }
-            if (!created.await(LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS)) throw YtException("WebView non risponde")
-            val opened = page ?: throw YtException("WebView non disponibile: ${failure?.message}")
+            if (!created.await(LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS)) throw YtException(Lang.get(R.string.webview_timeout))
+            val opened = page ?: throw YtException(Lang.get(R.string.webview_missing, failure?.message.orEmpty()))
             if (!opened.loaded.await(LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                 opened.close()
-                throw YtException("La pagina JavaScript non si carica")
+                throw YtException(Lang.get(R.string.js_page_failed))
             }
             return opened
         }

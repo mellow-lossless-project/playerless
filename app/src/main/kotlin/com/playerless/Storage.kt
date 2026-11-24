@@ -6,6 +6,7 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
+import java.util.concurrent.Executors
 
 // Null when the file doesn't exist. One that can't be parsed is set aside, so it neither crashes
 // every start nor gets overwritten by the next save.
@@ -33,4 +34,12 @@ fun AtomicFile.writeText(text: String) {
     } catch (_: IOException) {
         stream?.let(::failWrite)
     }
+}
+
+// Writes what the main thread keeps, the listening stats and the playlists, behind it: one file at
+// a time and in order. An fsync can take long while a download fills the disk.
+object Disk {
+    private val writer = Executors.newSingleThreadExecutor()
+
+    fun write(file: AtomicFile, text: String) = writer.execute { file.writeText(text) }
 }

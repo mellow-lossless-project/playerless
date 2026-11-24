@@ -2,13 +2,13 @@ package com.playerless
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Build
 import org.json.JSONObject
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
-import java.util.Locale
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutionException
@@ -29,14 +29,18 @@ object Lossless {
     // 16-bit / 44.1 kHz stereo PCM: what FLAC carries before compression.
     const val KBPS = 1411
 
+    // Android decodes FLAC from 8.1 on. On 8.0 a FLAC file would play as silence, with no error.
+    val SUPPORTED = Build.VERSION.SDK_INT >= 27
+
     // Downloads from the server send it too.
     const val UA =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
     private const val SEARCH_LIMIT = 8
     private const val MAX_DURATION_DIFF_S = 5
     // A server that didn't answer (or said "too many requests") is left alone for a while, so it
-    // costs one song a timeout, not every song.
-    private const val DOWN_MS = 60_000L
+    // costs one song a timeout, not every song: a minute, then longer each time it fails again in a
+    // row, back to a minute once it answers.
+    private val DOWN_MS = longArrayOf(60_000L, 5 * 60_000L, 30 * 60_000L)
 
     // Measured 2026-11-23: a search takes 0.6-3.3 s. A file's first bytes come in 0.4-1.5 s when the
     // server has it at hand, but it fetches about a third of them first, and those take 3-17 s. So a
@@ -74,6 +78,7 @@ object Lossless {
     private val unsendable = ConcurrentHashMap<String, Long>()
     private val lookups = Executors.newCachedThreadPool()
     @Volatile private var downUntil = 0L
+    @Volatile private var downs = 0
     @Volatile private var server = ""
     private lateinit var prefs: SharedPreferences
 
@@ -98,10 +103,10 @@ object Lossless {
         val result = try {
             if (waitMs > 0) task.get(waitMs, TimeUnit.MILLISECONDS) else task.get()
         } catch (_: TimeoutException) {
-            log("Il server lossless è lento: questa volta suono la sorgente del brano")
+            log(Lang.get(R.string.lossless_slow))
             return null
         } catch (e: ExecutionException) {
-            log("Errore del server lossless: ${e.cause?.message ?: e.cause?.javaClass?.simpleName}")
+            log(Lang.get(R.string.lossless_error, e.cause?.message ?: e.cause?.javaClass?.simpleName.orEmpty()))
             return null
         }
         if (result.found == null) log(result.note)
@@ -122,12 +127,12 @@ object Lossless {
         val now = System.currentTimeMillis()
         val known = answers[key]
         if (known != null && now - known.at < (if (known.found != null) FRESH_MS else MISSING_MS)) {
-            if (known.found == null) log("Non c'è sul server lossless")
+            if (known.found == null) log(Lang.get(R.string.lossless_missing))
             return known.found to null
         }
         if (now < (unsendable[key] ?: 0) || now < downUntil) return null to null
         val before = known?.found
-        log(if (before != null) "Controllo il file lossless" else "Cerco la versione lossless")
+        log(Lang.get(if (before != null) R.string.lossless_checking else R.string.lossless_searching))
         return null to pending.computeIfAbsent(key) {
             lookups.submit(Callable { lookup(base, key, title, artist, seconds, before) })
         }
@@ -148,12 +153,13 @@ object Lossless {
                 val match = try {
                     search(base, title, artist, seconds)
                 } catch (e: Exception) {
-                    downUntil = System.currentTimeMillis() + DOWN_MS
-                    return Lookup(null, "Server lossless non risponde: ${e.message ?: e.javaClass.simpleName}")
+                    rest()
+                    return Lookup(null, Lang.get(R.string.lossless_down, e.message ?: e.javaClass.simpleName))
                 }
+                downs = 0
                 if (match == null) {
                     remember(base, key, Answer(null, System.currentTimeMillis()))
-                    return Lookup(null, "Non c'è sul server lossless")
+                    return Lookup(null, Lang.get(R.string.lossless_missing))
                 }
                 url = "$base/track/${match.first}"
                 length = match.second
@@ -165,22 +171,27 @@ object Lossless {
                 open(url, length)
             } catch (e: Exception) {
                 if (e.message == "HTTP 429") {
-                    downUntil = System.currentTimeMillis() + DOWN_MS
+                    rest()
                 } else {
                     unsendable[key] = System.currentTimeMillis() + UNSENDABLE_MS
                     if (before != null) forget(base, key)
                 }
-                return Lookup(null, "Il server lossless ce l'ha ma non lo manda: ${e.message ?: e.javaClass.simpleName}")
+                return Lookup(null, Lang.get(R.string.lossless_unsendable, e.message ?: e.javaClass.simpleName))
             }
             if (found == null) {
                 unsendable[key] = System.currentTimeMillis() + ODD_ANSWER_MS
-                return Lookup(null, "Il server lossless non manda un file audio")
+                return Lookup(null, Lang.get(R.string.lossless_not_audio))
             }
             remember(base, key, Answer(found, System.currentTimeMillis()))
             return Lookup(found, "")
         } finally {
             pending.remove(key)
         }
+    }
+
+    private fun rest() {
+        downUntil = System.currentTimeMillis() + DOWN_MS[minOf(downs, DOWN_MS.size - 1)]
+        downs++
     }
 
     // The server in use. Answers come from the disk the first time, and only for that server: a
@@ -193,6 +204,7 @@ object Lossless {
                 answers.clear()
                 unsendable.clear()
                 downUntil = 0
+                downs = 0
                 if (prefs.getString(SERVER, null) == base) load() else prefs.edit().clear().putString(SERVER, base).apply()
                 server = base
             }
@@ -294,7 +306,7 @@ object Lossless {
         val rate = (b[10] shl 12) or (b[11] shl 4) or (b[12] shr 4)
         val bits = (((b[12] and 0x01) shl 4) or (b[13] shr 4)) + 1
         if (rate !in 8_000..768_000 || bits !in 8..32) return "FLAC"
-        return String.format(Locale.ITALY, "FLAC %d bit · %.1f kHz", bits, rate / 1000.0)
+        return String.format(Lang.locale, "FLAC %d bit · %.1f kHz", bits, rate / 1000.0)
     }
 
     // One read can stop short of what's there.

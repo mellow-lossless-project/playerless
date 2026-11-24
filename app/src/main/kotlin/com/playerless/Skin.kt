@@ -108,8 +108,8 @@ class RuleDecoration(color: Int, private val inset: Float, private val thickness
         for (i in 0 until parent.childCount) {
             val child = parent.getChildAt(i)
             val type = parent.getChildViewHolder(child).itemViewType
-            // Song rows are SongAdapter's only type, 0; settings rows are HomeAdapter's item_home.
-            if (type != 0 && type != R.layout.item_home) continue
+            // Song rows are SongAdapter's type 0 and its lead row; settings rows are HomeAdapter's item_home.
+            if (type != 0 && type != SongAdapter.LEAD && type != R.layout.item_home) continue
             val bottom = child.bottom + child.translationY
             canvas.drawRect(inset, bottom - thickness, right, bottom, paint)
         }

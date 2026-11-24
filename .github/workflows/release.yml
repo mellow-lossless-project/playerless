@@ -24,6 +24,17 @@ jobs:
       - name: Fetch the tags with their messages
         run: git fetch --force origin "+refs/tags/*:refs/tags/*"
 
+      # The committed APK must be the version the tag names: a stale one would be fetched by every
+      # phone's updater, found no newer, and not published.
+      - name: Check the APK's version
+        if: github.ref_type == 'tag'
+        run: |
+          aapt2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 2> /dev/null | sort -V | tail -n 1)
+          if [ -z "$aapt2" ]; then echo "::warning::aapt2 not found, version not checked"; exit 0; fi
+          version=$("$aapt2" dump badging Playerless.apk | sed -n "s/^package: .*versionName='\([^']*\)'.*/\1/p")
+          echo "Playerless.apk is version $version, the tag is $GITHUB_REF_NAME"
+          [ "$version" = "${GITHUB_REF_NAME#v}" ]
+
       - name: Publish or update the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -34,6 +45,9 @@ jobs:
             tag=$(git describe --tags --abbrev=0 --match 'v*') || exit 0
           fi
           git tag -l --format='%(contents)' "$tag" > notes.md
+          # So anyone can check the APK they got is the one published here: the APK at the tag, not
+          # whatever main holds by now.
+          printf '\nSHA-256 of Playerless.apk: `%s`\n' "$(git show "$tag:Playerless.apk" | sha256sum | cut -d ' ' -f 1)" >> notes.md
           if gh release view "$tag" > /dev/null 2>&1; then
             gh release edit "$tag" --title "Playerless ${tag#v}" --notes-file notes.md
           elif [ "$GITHUB_REF_TYPE" = tag ]; then
