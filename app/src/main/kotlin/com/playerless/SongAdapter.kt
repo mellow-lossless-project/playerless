@@ -84,7 +84,9 @@ class SongAdapter(
     override fun getItemCount() = songs.size + offset
 
     companion object {
-        // Any id that isn't 0 or one of HomeAdapter's layouts.
-        const val LEAD = R.layout.item_song
+        // Any id that isn't 0 or one of HomeAdapter's layouts (0x7f...). A plain number: R's ids
+        // aren't compile-time constants, and a const set from one built Skin.kt's read of it as a
+        // call to a getter that doesn't exist, which crashed every poster theme in 1.6.
+        const val LEAD = 1
     }
 }

@@ -265,11 +265,16 @@ object Downloads {
                     if (ranged || have > 0) conn.setRequestProperty("Range", "bytes=$have-")
                     val code = conn.responseCode
                     if (code !in 200..299) throw IOException("HTTP $code")
-                    // A server that ignores the range sends the whole file again: it starts over.
+                    // A server that ignores the range sends the whole file again: it starts over. A
+                    // piece must start where the file stops ("bytes 5292891-40568617/40568618"), or
+                    // the FLAC would be stitched wrong.
                     val append = code == 206 && have > 0
+                    val range = conn.getHeaderField("Content-Range")
+                    val from = range?.substringAfter("bytes ", "")?.substringBefore('-')?.toLongOrNull()
+                    if (code == 206 && from != null && from != (if (append) have else 0L)) throw IOException("Content-Range $range for $have")
                     val length = conn.contentLengthLong
                     total = if (code == 206) {
-                        conn.getHeaderField("Content-Range")?.substringAfter('/')?.toLongOrNull() ?: if (length >= 0) have + length else -1
+                        range?.substringAfter('/')?.toLongOrNull() ?: if (length >= 0) have + length else -1
                     } else {
                         length
                     }

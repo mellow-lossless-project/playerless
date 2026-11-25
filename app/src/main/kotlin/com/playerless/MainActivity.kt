@@ -43,6 +43,8 @@ private const val KEY_ARTIST_NAME = "artist_name"
 private const val KEY_ARTIST_ID = "artist_id"
 private const val KEY_ALBUM = "album"
 private const val LOG_DELAY_MS = 300L
+// A lost session is connected again after this, so a service that keeps failing isn't rebound in a loop.
+private const val RECONNECT_MS = 1_000L
 private const val LOG_TICK_MS = 100L
 private const val LOG_LINES = 8
 // How long the first catalog to answer a search waits for the other before showing alone.
@@ -252,7 +254,17 @@ class MainActivity : Activity() {
     // foreground, and coming back to the app rebuilds nothing.
     private fun connect() {
         val token = SessionToken(this, ComponentName(this, PlaybackService::class.java))
-        val future = MediaController.Builder(this, token).buildAsync()
+        // The session can go away under a living activity (its service stopped, or ended by Android):
+        // a new connection then, instead of every tap going to a controller that's gone.
+        val future = MediaController.Builder(this, token)
+            .setListener(object : MediaController.Listener {
+                override fun onDisconnected(controller: MediaController) {
+                    if (this@MainActivity.controller !== controller) return
+                    this@MainActivity.controller = null
+                    main.postDelayed({ reconnect() }, RECONNECT_MS)
+                }
+            })
+            .buildAsync()
         controllerFuture = future
         future.addListener({
             if (future.isCancelled) return@addListener
@@ -1012,10 +1024,21 @@ class MainActivity : Activity() {
 
     private fun playAll(songs: List<Song>) = startQueue(playable(songs), 0)
 
+    // Unless one is on its way already, or the activity is gone.
+    private fun reconnect() {
+        if (isDestroyed || controller?.isConnected == true) return
+        controllerFuture?.let {
+            if (!it.isDone) return
+            MediaController.releaseFuture(it)
+        }
+        connect()
+    }
+
     private fun startQueue(queue: List<Song>, start: Int) {
-        val player = controller
+        val player = controller?.takeIf { it.isConnected }
         if (player == null) {
             pendingQueue = { startQueue(queue, start) }
+            reconnect()
             return
         }
         if (start !in queue.indices) {

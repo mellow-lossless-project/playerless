@@ -31,7 +31,7 @@ Il nome è un gioco di parole: suona come "lossless". Con la qualità "Lossless 
 
 ## Scaricare
 
-**[Scarica Playerless.apk](https://github.com/mellow-lossless-project/playerless/releases/latest/download/Playerless.apk)** (versione 1.6.1)
+**[Scarica Playerless.apk](https://github.com/mellow-lossless-project/playerless/releases/latest/download/Playerless.apk)** (versione 1.6.2)
 
 Ogni versione è anche nelle [Release](https://github.com/mellow-lossless-project/playerless/releases), con l'APK allegato e le novità. Si installa sopra la precedente: playlist e download restano; disinstallando l'app, invece, si perdono. Nelle note di ogni release c'è lo SHA-256 dell'APK. Dalla 1.5 l'app trova da sola le versioni nuove: la prima volta Android chiede di consentire a Playerless di installare app, poi basta toccare "Installa".
 
