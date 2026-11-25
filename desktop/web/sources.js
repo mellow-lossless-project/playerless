@@ -282,8 +282,11 @@ const YtSolver = {
   brokenHash: null,
   brokenUntil: 0,
 
+  // The TV variant: since 2026-11-23 the main one ("player_ias") builds a class at load time that the
+  // solver strips ("a.addOnDisposeCallback is not a function"); yt-dlp moved to this one with the
+  // same solver. Cached under "tv", so a main one cached for the same hash isn't reused.
   playerUrl(hash) {
-    return `https://www.youtube.com/s/player/${hash}/player_ias.vflset/en_GB/base.js`;
+    return `https://www.youtube.com/s/player/${hash}/tv-player-ias.vflset/tv-player-ias.js`;
   },
 
   // refresh asks YouTube for its current player even if the day isn't over.
@@ -297,19 +300,19 @@ const YtSolver = {
     let sts = saved.sts || 0;
     let code = null;
     const stale = Date.now() - (saved.checked || 0) > YtSolver.CHECK_EVERY_MS;
-    if (!hash || refresh || stale || !(await Cache.has(`player-${hash}.js`))) {
+    if (!hash || refresh || stale || !(await Cache.has(`player-tv-${hash}.js`))) {
       const iframe = await Net.text('https://www.youtube.com/iframe_api', { headers: { 'User-Agent': YouTube.WEB_UA } });
       const match = YtSolver.HASH.exec(iframe);
       if (!match) throw new YtError('Versione del player sconosciuta');
       const current = match[1];
-      if (current !== hash || !(await Cache.has(`player-${current}.js`))) {
+      if (current !== hash || !(await Cache.has(`player-tv-${current}.js`))) {
         log('Scarico il player di YouTube');
         code = await Net.text(YtSolver.playerUrl(current), { headers: { 'User-Agent': YouTube.WEB_UA } });
         const found = YtSolver.STS.exec(code);
         if (!found) throw new YtError('Player di YouTube non riconosciuto');
         sts = Number(found[1]);
         await Cache.clear();
-        await Cache.put(`player-${current}.js`, code);
+        await Cache.put(`player-tv-${current}.js`, code);
         hash = current;
       }
       Object.assign(saved, { player: hash, sts, checked: Date.now() });
@@ -321,14 +324,14 @@ const YtSolver = {
     if (YtSolver.worker) YtSolver.worker.close();
     YtSolver.worker = null;
 
-    const prepared = await Cache.get(`prep-${hash}.js`);
+    const prepared = await Cache.get(`prep-tv-${hash}.js`);
     // Preparing a new player takes seconds; the line says why the wait is longer.
     log(prepared ? 'Avvio il decifratore' : 'Preparo il decifratore (1ª volta)');
     const worker = new SolverWorker();
     try {
-      const player = prepared ? null : code || (await Cache.get(`player-${hash}.js`));
+      const player = prepared ? null : code || (await Cache.get(`player-tv-${hash}.js`));
       const result = await worker.call({ type: 'load', prepared, player }, 120000);
-      if (result.preprocessed) Cache.put(`prep-${hash}.js`, result.preprocessed);
+      if (result.preprocessed) Cache.put(`prep-tv-${hash}.js`, result.preprocessed);
     } catch (e) {
       worker.close();
       YtSolver.broken = 'Decifratore: ' + e.message;

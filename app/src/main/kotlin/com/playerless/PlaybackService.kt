@@ -88,7 +88,10 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         // no-store keeps audio out of the cover cache, which would otherwise take it too.
+        // The lossless server pauses for up to ~13 s within a file and takes up to ~9 s for a piece's
+        // first byte (measured 2026-11-25): the default 8 s read timeout broke its streams.
         val http = DefaultHttpDataSource.Factory()
+            .setReadTimeoutMs(20_000)
             .setUserAgent(YouTube.WEB_UA)
             .setDefaultRequestProperties(mapOf("Cache-Control" to "no-store"))
 
@@ -116,9 +119,13 @@ class PlaybackService : MediaSessionService() {
                     val log: (String) -> Unit = if (first) ({ LoadLog.add(id, it) }) else ({})
                     val link = try {
                         YtStream.resolve(spec.uri.schemeSpecificPart, log)
-                    } catch (e: IOException) {
-                        throw e
                     } catch (e: Exception) {
+                        val rescued = if (first) rescue(id) else null
+                        if (rescued != null) {
+                            origins[id] = rescued
+                            return@Factory spec.withUri(Uri.parse(rescued))
+                        }
+                        if (e is IOException) throw e
                         // YouTube answering something unexpected: not worth a retry either.
                         throw YtException(e.message ?: e.javaClass.simpleName)
                     }
@@ -234,12 +241,29 @@ class PlaybackService : MediaSessionService() {
         if (!losslessAllowed()) return null
         val info = queued[id] ?: return null
         val log: (String) -> Unit = { LoadLog.add(id, it) }
+        if (Downloads.savingLossless) {
+            log(Lang.get(R.string.lossless_busy))
+            return null
+        }
         val found = Lossless.resolve(info.title, info.artist, info.seconds, LOSSLESS_WAIT_MS, log) ?: return null
         if (!found.flac && !youtube) {
             log(Lang.get(R.string.log_lossless_not_flac, found.label))
             return null
         }
         log(Lang.get(R.string.log_load_lossless, found.label))
+        NowPlaying.set(id, if (found.flac) "Lossless · ${found.label}" else Lang.get(R.string.now_lossless_not_flac, found.label))
+        return found.url
+    }
+
+    // YouTube changes its player now and then, and until the app catches up none of its songs
+    // resolve (2026-11-23: "a.addOnDisposeCallback is not a function"). The lossless server stands in
+    // for them then, whatever the quality and the network, rather than no song at all.
+    private fun rescue(id: String): String? {
+        val info = queued[id] ?: return null
+        val log: (String) -> Unit = { LoadLog.add(id, it) }
+        val found = Lossless.resolve(info.title, info.artist, info.seconds, LOSSLESS_WAIT_MS, log) ?: return null
+        if (found.flac && !Lossless.SUPPORTED) return null
+        log(Lang.get(R.string.log_youtube_rescue, found.label))
         NowPlaying.set(id, if (found.flac) "Lossless · ${found.label}" else Lang.get(R.string.now_lossless_not_flac, found.label))
         return found.url
     }
@@ -297,7 +321,7 @@ class PlaybackService : MediaSessionService() {
     // FLAC even when the server is slow. Downloads need none.
     private inner class LosslessAhead(private val player: Player) : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            if (!losslessAllowed()) return
+            if (!losslessAllowed() || Downloads.savingLossless) return
             val index = player.nextMediaItemIndex
             if (index == C.INDEX_UNSET) return
             val next = player.getMediaItemAt(index).mediaId

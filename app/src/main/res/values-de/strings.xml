@@ -44,6 +44,7 @@
     <string name="download_no_space">Nicht genug Speicher für %1$s</string>
     <string name="lossless_upgrade_no_space">Gestoppt: das Telefon ist fast voll. Songs in FLAC: %1$d</string>
     <string name="download_quality">Herunterladen in</string>
+    <string name="download_again">Erneut herunterladen in</string>
     <string name="equalizer">Equalizer</string>
     <plurals name="eq_on">
         <item quantity="one">An · %1$d Punkt</item>
@@ -103,9 +104,11 @@
     <string name="log_lossless_broke">Die Lossless-Datei brach ab: starte neu von der Quelle des Songs</string>
     <string name="log_lossless_not_flac">%1$s, kein FLAC: bleibe bei JioSaavn 320 kbps</string>
     <string name="log_load_lossless">Lade das Audio vom Lossless-Server (%1$s)</string>
+    <string name="log_youtube_rescue">YouTube geht nicht: spiele vom Lossless-Server (%1$s)</string>
     <string name="now_lossless_not_flac">Lossless-Server · %1$s, kein FLAC</string>
     <string name="log_failed">Nicht abspielbar: %1$s (%2$s)</string>
     <string name="lossless_slow">Der Lossless-Server ist langsam: diesmal spielt die Quelle des Songs</string>
+    <string name="lossless_busy">Ein Lossless-Download läuft: diesmal spielt die Quelle des Songs</string>
     <string name="lossless_error">Fehler des Lossless-Servers: %1$s</string>
     <string name="lossless_missing">Nicht auf dem Lossless-Server</string>
     <string name="lossless_checking">Prüfe die Lossless-Datei</string>

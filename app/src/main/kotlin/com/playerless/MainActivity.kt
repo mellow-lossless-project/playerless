@@ -755,14 +755,16 @@ class MainActivity : Activity() {
                 .setPositiveButton(R.string.delete) { _, _ -> Downloads.delete(song) }
                 .setNegativeButton(android.R.string.cancel, null)
                 .show()
-        } else if (!Downloads.isDownloaded(song) && !Downloads.isDownloading(song)) {
-            chooseDownloadQuality(song)
+        } else if (!Downloads.isDownloading(song)) {
+            // A song already on the phone can come down again, e.g. in lossless over an older copy:
+            // the new file takes the old one's place once it's whole.
+            chooseDownloadQuality(song, again = Downloads.isDownloaded(song))
         }
     }
 
     // Lossless first, from the lossless server, then the renditions of the song's own source. A null
     // bitrate downloads the song as it streams.
-    private fun chooseDownloadQuality(song: Song) {
+    private fun chooseDownloadQuality(song: Song, again: Boolean) {
         val best = SaavnApi.kbpsOf(song.url)
         val choices = ArrayList<Pair<Int?, String>>()
         if (Lossless.SUPPORTED) choices += Lossless.KBPS to qualityLabel(Lossless.KBPS)
@@ -772,7 +774,7 @@ class MainActivity : Activity() {
             else -> Settings.QUALITIES.filter { it != Lossless.KBPS && it <= best }.forEach { choices += it to qualityLabel(it) }
         }
         AlertDialog.Builder(this)
-            .setTitle(R.string.download_quality)
+            .setTitle(if (again) R.string.download_again else R.string.download_quality)
             .setItems(choices.map { it.second }.toTypedArray()) { _, which -> Downloads.download(song, choices[which].first) }
             .show()
     }

@@ -113,6 +113,15 @@ object Lossless {
         return result.found
     }
 
+    // For a download asked for: a fresh lookup, as long as it takes. A stream of the song that broke
+    // off (failed), or the server resting after a failed search, don't keep it from its file: the
+    // download would otherwise quietly save the song's own source instead.
+    fun resolveForDownload(title: String, artist: String, seconds: Int): Found? {
+        unsendable.remove("$title|$artist")
+        downUntil = 0
+        return resolve(title, artist, seconds) {}
+    }
+
     // Starts looking a song up, without waiting: the song after the one playing, so it starts
     // without the wait. Blocking for a moment the first time (the answers are read from disk).
     fun prefetch(title: String, artist: String, seconds: Int) {

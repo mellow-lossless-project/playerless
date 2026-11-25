@@ -44,6 +44,7 @@
     <string name="download_no_space">Spazio insufficiente per %1$s</string>
     <string name="lossless_upgrade_no_space">Interrotto: il telefono è quasi pieno. Brani in FLAC: %1$d</string>
     <string name="download_quality">Scarica in</string>
+    <string name="download_again">Scarica di nuovo in</string>
     <string name="equalizer">Equalizzatore</string>
     <plurals name="eq_on">
         <item quantity="one">Attivo · %1$d punto</item>
@@ -103,9 +104,11 @@
     <string name="log_lossless_broke">Il file lossless si è interrotto: riparto dalla sorgente del brano</string>
     <string name="log_lossless_not_flac">%1$s, non FLAC: resto su JioSaavn 320 kbps</string>
     <string name="log_load_lossless">Carico l\'audio dal server lossless (%1$s)</string>
+    <string name="log_youtube_rescue">YouTube non va: suono dal server lossless (%1$s)</string>
     <string name="now_lossless_not_flac">Server lossless · %1$s, non FLAC</string>
     <string name="log_failed">Non riproducibile: %1$s (%2$s)</string>
     <string name="lossless_slow">Il server lossless è lento: questa volta suono la sorgente del brano</string>
+    <string name="lossless_busy">C\'è un download lossless in corso: questa volta suono la sorgente del brano</string>
     <string name="lossless_error">Errore del server lossless: %1$s</string>
     <string name="lossless_missing">Non c\'è sul server lossless</string>
     <string name="lossless_checking">Controllo il file lossless</string>

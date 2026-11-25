@@ -51,6 +51,7 @@
     <string name="download_no_space">Not enough space for %1$s</string>
     <string name="lossless_upgrade_no_space">Stopped: the phone is almost full. Songs in FLAC: %1$d</string>
     <string name="download_quality">Download in</string>
+    <string name="download_again">Download again in</string>
     <string name="song_quality" translatable="false">%1$s · %2$d kbps</string>
     <string name="from_youtube" translatable="false">%1$s · YouTube</string>
     <string name="loading_song" translatable="false">%1$s · %2$s s</string>
@@ -116,9 +117,11 @@
     <string name="log_lossless_broke">The lossless file broke off: starting over from the song\'s own source</string>
     <string name="log_lossless_not_flac">%1$s, not FLAC: staying on JioSaavn 320 kbps</string>
     <string name="log_load_lossless">Loading the audio from the lossless server (%1$s)</string>
+    <string name="log_youtube_rescue">YouTube isn\'t working: playing from the lossless server (%1$s)</string>
     <string name="now_lossless_not_flac">Lossless server · %1$s, not FLAC</string>
     <string name="log_failed">Can\'t play: %1$s (%2$s)</string>
     <string name="lossless_slow">The lossless server is slow: playing the song\'s own source this time</string>
+    <string name="lossless_busy">A lossless download is running: playing the song\'s own source this time</string>
     <string name="lossless_error">Lossless server error: %1$s</string>
     <string name="lossless_missing">Not on the lossless server</string>
     <string name="lossless_checking">Checking the lossless file</string>

@@ -10,7 +10,7 @@ The name is a pun on "lossless".
 
 ## Download
 
-**[Playerless.apk](https://github.com/mellow-lossless-project/playerless/releases/latest/download/Playerless.apk)** (version 1.6.2) for Android 8.0 or newer.
+**[Playerless.apk](https://github.com/mellow-lossless-project/playerless/releases/latest/download/Playerless.apk)** (version 1.6.3) for Android 8.0 or newer.
 
 Android asks once to allow installs from your browser or file manager. Every version is also in [Releases](https://github.com/mellow-lossless-project/playerless/releases) with its notes and the APK's SHA-256. A new version installs over the old one: playlists and downloads stay. Uninstalling the app deletes them.
 

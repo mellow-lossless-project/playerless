@@ -9,7 +9,11 @@ import java.io.File
 object YtSolver {
     private const val CHECK_EVERY_MS = 24 * 3600_000L
     private const val RETRY_BROKEN_MS = 10 * 60_000L
-    private const val PLAYER_URL = "https://www.youtube.com/s/player/%s/player_ias.vflset/en_GB/base.js"
+    // The TV variant of the player: since 2026-11-23 the main one ("player_ias") builds a class at
+    // load time that the solver strips ("a.addOnDisposeCallback is not a function"); yt-dlp moved to
+    // this variant with the same solver, 0.8.0. Its files are cached under "tv", so a main one cached
+    // for the same player hash isn't reused.
+    private const val PLAYER_URL = "https://www.youtube.com/s/player/%s/tv-player-ias.vflset/tv-player-ias.js"
     private val HASH = Regex("""player\\?/([A-Za-z0-9_-]{6,})\\?/""")
     private val STS = Regex("""(?:signatureTimestamp|sts)\s*[:=]\s*(\d{5})""")
     private val SCRIPTS = listOf("yt.solver.lib.min.js", "yt.solver.core.js")
@@ -33,15 +37,15 @@ object YtSolver {
         var hash = prefs.getString("player", null)
         var sts = prefs.getInt("player_sts", 0)
         val stale = System.currentTimeMillis() - prefs.getLong("player_checked", 0) > CHECK_EVERY_MS
-        if (hash == null || refresh || stale || !File(dir, "player-$hash.js").exists()) {
+        if (hash == null || refresh || stale || !File(dir, playerFile(hash)).exists()) {
             val iframe = Http.get("https://www.youtube.com/iframe_api", mapOf("User-Agent" to YouTube.WEB_UA))
             val current = HASH.find(iframe)?.groupValues?.get(1) ?: throw YtException(Lang.get(R.string.yt_player_unknown))
-            if (current != hash || !File(dir, "player-$current.js").exists()) {
+            if (current != hash || !File(dir, playerFile(current)).exists()) {
                 log(Lang.get(R.string.yt_player_download))
                 val code = Http.get(PLAYER_URL.format(current), mapOf("User-Agent" to YouTube.WEB_UA))
                 sts = STS.find(code)?.groupValues?.get(1)?.toInt() ?: throw YtException(Lang.get(R.string.yt_player_unreadable))
                 dir.listFiles()?.forEach { if (it.name.startsWith("player-") || it.name.startsWith("prep-")) it.delete() }
-                File(dir, "player-$current.js").writeText(code)
+                File(dir, playerFile(current)).writeText(code)
                 hash = current
             }
             prefs.edit()
@@ -60,7 +64,7 @@ object YtSolver {
         for (name in SCRIPTS) {
             context.assets.open("yt/$name").use { input -> File(dir, name).outputStream().use { input.copyTo(it) } }
         }
-        val prepared = File(dir, "prep-$hash.js")
+        val prepared = File(dir, prepFile(hash))
         // Preparing a new player takes seconds; the line says why the wait is longer.
         log(Lang.get(if (prepared.exists()) R.string.yt_solver_start else R.string.yt_solver_prepare))
         val html = context.assets.open("yt/solver.html").bufferedReader().use { it.readText() }
@@ -71,7 +75,7 @@ object YtSolver {
             part.renameTo(prepared)
         }
         try {
-            created.call("load('prep-$hash.js','player-$hash.js')", 120_000)
+            created.call("load('${prepFile(hash)}','${playerFile(hash)}')", 120_000)
         } catch (e: YtException) {
             created.close()
             prepared.delete()
@@ -84,4 +88,8 @@ object YtSolver {
         pageHash = hash
         return Player(sts, created)
     }
+
+    private fun playerFile(hash: String?) = "player-tv-$hash.js"
+
+    private fun prepFile(hash: String?) = "prep-tv-$hash.js"
 }
